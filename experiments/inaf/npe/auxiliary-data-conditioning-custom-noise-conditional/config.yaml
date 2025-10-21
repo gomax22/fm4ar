@@ -16,6 +16,11 @@ theta_scaler:
     file_path: "$FM4AR_DATASETS_DIR/SBI_INAF/norm_params.pkl"
 
 
+auxiliary_data_scaler:
+  method: "MeanStdScaler"
+  kwargs:
+    dataset: "inaf"
+    file_path: "$FM4AR_DATASETS_DIR/SBI_INAF/norm_params.pkl"
 # -----------------------------------------------------------------------------
 # MODEL ARCHITECTURE
 # -----------------------------------------------------------------------------
@@ -107,7 +112,7 @@ training:
   stage_0:
     backup_interval: 10
     batch_size: 64
-    n_workers: 4
+    n_workers: 16
     data_transforms:
       - type: "AddCustomNoise"
         kwargs:

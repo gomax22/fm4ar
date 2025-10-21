@@ -15,7 +15,7 @@ draw_samples:
   shuffle: False
   pin_memory: True
   drop_last: False
-  n_workers: 4
+  n_workers: 16
   random_seed: 42
 
   htcondor:
