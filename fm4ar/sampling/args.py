@@ -53,18 +53,6 @@ def get_cli_arguments() -> argparse.Namespace:
         action="store_true",
         help="If True, create a submission file and launch a job.",
     )
-    parser.add_argument(
-        "--working-dir",
-        type=Path,
-        required=True,
-        help=(
-            "Path to the directory containing the importance sampling config "
-            "file. The importance sampling config file is expected to be "
-            "named `importance_sampling.yaml` (to reduce confusion). The path "
-            "can either be absolute, or relative to the `importance_sampling` "
-            "directory in the experiment directory."
-        ),
-    )
     args = parser.parse_args()
 
     return args

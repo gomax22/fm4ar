@@ -7,7 +7,6 @@ from typing import Any
 
 import numpy as np
 import torch
-from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast
 
@@ -217,9 +216,9 @@ def draw_samples_from_ml_model(
                     .reshape(1, -1) if aux_data is not None else None
                 ),
                 **model_kwargs,
-            ).cpu().numpy().flatten()
+            ).detach().cpu().numpy().flatten()
 
-            for n in tqdm(chunk_sizes, ncols=80):
+            for n in chunk_sizes:
 
                 # Adjust the size of both the context and auxiliary data so that the batch size matches
                 # the desired chunk size, and move it to the correct device
@@ -241,10 +240,10 @@ def draw_samples_from_ml_model(
                     test_loader
                     .dataset
                     .theta_scaler
-                    .inverse_tensor(chunk[0].cpu())
+                    .inverse_tensor(chunk[0].detach().cpu())
                     .numpy()
                 )
-                log_prob_chunks.append(chunk[1].cpu().numpy())
+                log_prob_chunks.append(chunk[1].detach().cpu().numpy())
                 del chunk
 
     print(flush=True)

@@ -110,26 +110,16 @@ if __name__ == "__main__":
     # Get the command line arguments and define shortcuts
     args = get_cli_arguments()
 
-    # Resolve the working directory in case it is not absolute
-    # We need to overwrite args because some functions expect args.working_dir
-    # to be an absolute path. Not sure if there is a cleaner way to do this?
-    if not args.working_dir.is_absolute():
-        args.working_dir = expand_env_variables_in_path(
-            Path(args.experiment_dir)
-            / "sampling"
-            / args.working_dir
-        )
-
     # Make sure the working directory exists before we proceed
-    if not args.working_dir.exists():
-        raise FileNotFoundError(f"Directory not found: {args.working_dir}")
+    if not args.experiment_dir.exists():
+        raise FileNotFoundError(f"Directory not found: {args.experiment_dir}")
 
     # Ensure that we do not run compute-heavy jobs on the login node
     check_if_on_login_node(start_submission=args.start_submission)
     print("Running on host:", gethostname(), "\n", flush=True)
 
     # Load the importance sampling config
-    config = load_config(experiment_dir=args.working_dir)
+    config = load_config(experiment_dir=args.experiment_dir)
 
     # -------------------------------------------------------------------------
     # If --start-submission: Create DAG file, launch job, and exit
@@ -151,7 +141,7 @@ if __name__ == "__main__":
 
         # Check if the output file already exists
         output_file_path = (
-            args.working_dir / "samples.hdf"
+            args.experiment_dir / "samples.hdf"
         )
 
         if output_file_path.exists():
@@ -182,7 +172,7 @@ if __name__ == "__main__":
             )
             print("\nSaving results to NPY...", end=" ", flush=True)
             save_to_npy(
-                output_dir=args.working_dir,
+                output_dir=args.experiment_dir,
                 samples=results["samples"],
                 log_prob_samples=results["log_prob_samples"],
                 log_prob_theta_true=results["log_prob_theta_true"],
