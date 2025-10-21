@@ -1,0 +1,151 @@
+# -----------------------------------------------------------------------------
+# DATASET AND SCALERS
+# -----------------------------------------------------------------------------
+
+dataset:
+  name: "inaf"
+  data_dir: "$FM4AR_DATASETS_DIR/SBI_INAF"
+  verbose: true
+  limit: null
+  random_seed: 42
+
+theta_scaler:
+  method: "MeanStdScaler"
+  kwargs:
+    dataset: "inaf"
+    file_path: "$FM4AR_DATASETS_DIR/SBI_INAF/norm_params.pkl"
+
+
+# -----------------------------------------------------------------------------
+# MODEL ARCHITECTURE
+# -----------------------------------------------------------------------------
+
+model:
+
+  # General settings
+  model_type: "npe"
+  random_seed: 42
+
+  # Embedding network for context
+  context_embedding_net:
+    - block_type: "SoftClipFlux"
+      kwargs:
+        bound: 100.0
+    - block_type: "Concatenate"
+      kwargs:
+        keys: [ "flux", "error_bars" ]
+    - block_type: "DenseResidualNet"
+      kwargs:
+        hidden_dims:
+          # - 4096
+          # - 4096
+          # - 4096
+          # - 2048
+          # - 2048
+          # - 2048
+          # - 1024
+          # - 1024
+          # - 1024
+          # - 512
+          # - 512
+          # - 512
+          # - 256
+          # - 256
+          # - 1024
+          # - 1024
+          - 512
+          - 512
+          - 256
+          - 256
+          - 128
+          - 128
+          - 64
+          - 64
+          - 32
+          - 32
+        activation: "GELU"
+        output_dim: 32
+        dropout: 0.1
+        use_layer_norm: true
+
+  auxiliary_data_embedding_net:
+    - block_type: "PositionalEncoding"
+      kwargs:
+        n_freqs: 9
+        encode_params: false
+    - block_type: "DenseResidualNet"
+      kwargs:
+        hidden_dims: [512, 512]
+        activation: "GELU"
+        output_dim: 512
+        dropout: 0.0
+
+
+  # Discrete normalizing flow (wrapped in a compatibility layer)
+  # Note: normflows uses slightly different kwargs (see unit tests for demo)
+  flow_wrapper:
+    flow_library: "glasflow"
+    kwargs:
+      num_flow_steps: 16
+      base_transform_type: "rq-coupling"
+      base_transform_kwargs:
+        hidden_dim: 512
+        num_transform_blocks: 4
+        activation: "GELU"
+        dropout_probability: 0.1
+        use_batch_norm: false
+        num_bins: 16
+        tail_bound: 10.0
+
+
+# -----------------------------------------------------------------------------
+# TRAINING
+# -----------------------------------------------------------------------------
+
+training:
+
+  stage_0:
+    backup_interval: 10
+    batch_size: 64
+    n_workers: 4
+    data_transforms:
+      - type: "AddCustomNoise"
+        kwargs:
+          type: "DefaultNoiseGenerator"
+          kwargs:
+            sigma_min: 0.05
+            sigma_max: 0.50
+            random_seed: 42
+    early_stopping:
+      stage_patience: 20
+    epochs: 20
+    float32_matmul_precision: "high"
+    gradient_clipping:
+      enabled: true
+      max_norm: 1.0
+    logprob_evaluation:
+      interval: 10
+      n_samples: 2048
+      ode_solver:
+        method: "dopri5"
+        tolerance: 1.0e-4
+    optimizer:
+      type: "AdamW"
+      kwargs:
+        lr: 5.0e-4
+    scheduler:
+      type: "CosineAnnealingLR"
+      kwargs:
+        T_max: 20
+    use_amp: true
+
+# -----------------------------------------------------------------------------
+# LOCAL SETTINGS
+# -----------------------------------------------------------------------------
+
+local:
+
+  # Device ("cpu" or "cuda"; or "auto")
+  device: "cuda"
+
+  

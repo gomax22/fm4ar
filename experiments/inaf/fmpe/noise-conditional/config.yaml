@@ -1,0 +1,142 @@
+# -----------------------------------------------------------------------------
+# DATASET AND SCALERS
+# -----------------------------------------------------------------------------
+
+dataset:
+  name: "inaf"
+  data_dir: "$FM4AR_DATASETS_DIR/SBI_INAF"
+  verbose: true
+  limit: null
+  random_seed: 42
+
+theta_scaler:
+  method: "MeanStdScaler"
+  kwargs:
+    dataset: "inaf"
+    file_path: "$FM4AR_DATASETS_DIR/SBI_INAF/norm_params.pkl"
+
+
+# -----------------------------------------------------------------------------
+# MODEL ARCHITECTURE
+# -----------------------------------------------------------------------------
+
+model:
+
+  # General settings
+  model_type: "fmpe"
+  random_seed: 42
+  t_theta_with_glu: true
+  context_with_glu: false
+  sigma_min: 1.0e-4
+
+  time_prior:
+    type: "power_law"
+    kwargs:
+      time_prior_exponent: 3.0
+
+  # Embedding network for context
+  context_embedding_net:
+    - block_type: "SoftClipFlux"
+      kwargs:
+        bound: 100.0
+    - block_type: "Concatenate"
+      kwargs:
+        keys: ["flux", "error_bars"]
+    - block_type: "DenseResidualNet"
+      kwargs:
+        hidden_dims: [512, 512]
+        activation: "GELU"
+        output_dim: 512
+        dropout: 0.1
+        use_layer_norm: true
+
+  # Embedding network for (t, theta)
+  t_theta_embedding_net:
+    - block_type: "PositionalEncoding"
+      kwargs:
+        n_freqs: 6
+        encode_params: false
+    - block_type: "DenseResidualNet"
+      kwargs:
+        hidden_dims: [512, 512]
+        activation: "GELU"
+        output_dim: 512
+        dropout: 0.0
+
+  # Vector field network
+  vectorfield_net:
+    network_type: "DenseResidualNet"
+    kwargs:
+      hidden_dims:
+        # - 8192
+        # - 4096
+        # - 4096
+        # - 2048
+        - 2048
+        - 1024
+        - 1024
+        - 512
+        - 512
+        - 256
+        - 256
+        - 128
+        - 128
+        - 64
+        - 64
+        - 32
+        - 32
+      activation: "GELU"
+      dropout: 0.1
+      use_layer_norm: true
+
+# -----------------------------------------------------------------------------
+# TRAINING
+# -----------------------------------------------------------------------------
+
+training:
+
+  stage_0:
+    backup_interval: 10
+    batch_size: 64
+    n_workers: 4
+    data_transforms:
+      - type: "AddNoise"
+        kwargs:
+          type: "DefaultNoiseGenerator"
+          kwargs:
+            sigma_min: 0.05
+            sigma_max: 0.50
+            random_seed: 42
+    early_stopping:
+      stage_patience: 20
+    epochs: 20
+    float32_matmul_precision: "high"
+    gradient_clipping:
+      enabled: true
+      max_norm: 1.0
+    logprob_evaluation:
+      interval: 10
+      n_samples: 2048
+      ode_solver:
+        method: "dopri5"
+        tolerance: 1.0e-4
+    optimizer:
+      type: "AdamW"
+      kwargs:
+        lr: 5.0e-4
+    scheduler:
+      type: "CosineAnnealingLR"
+      kwargs:
+        T_max: 20
+    use_amp: true
+
+# -----------------------------------------------------------------------------
+# LOCAL SETTINGS
+# -----------------------------------------------------------------------------
+
+local:
+
+  # Device ("cpu" or "cuda"; or "auto")
+  device: "cuda"
+
+  
