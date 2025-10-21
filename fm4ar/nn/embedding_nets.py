@@ -56,6 +56,8 @@ def block_type_string_to_class(block_type: str) -> type:
             return PositionalEncoding
         case "SoftClipFlux":
             return SoftClipFlux
+        case "Unsqueeze":
+            return Unsqueeze  
         case _:  # pragma: no cover
             raise ValueError(f"Invalid block type: {block_type}!")
 
@@ -258,6 +260,42 @@ class Concatenate(SupportsDictInput, nn.Module):
         return context_tensor
 
 
+class Unsqueeze(SupportsDictInput, nn.Module):
+    """
+    Unsqueeze tensors in the context dictionary.
+    """
+    requires_input_shape = False
+
+    def __init__(self, keys: list[str], dim: int) -> None:
+        """
+        Instantiate an `Unsqueeze` block.
+
+        Args:
+            keys: The keys of the context dictionary to unsqueeze.
+            dim: The dimension to unsqueeze.
+        """
+
+        super(Unsqueeze, self).__init__()
+
+        self.keys = keys
+        self.dim = dim
+        self.required_keys = keys
+
+    def forward(self, context: Mapping[str, torch.Tensor]) -> Mapping[str, torch.Tensor]:
+        """
+        Forward pass through the `Unsqueeze` block.
+        """
+
+        # Create a shallow copy of the input dictionary because we do not
+        # want to modify the original input in place.
+        output = dict(context)
+
+        # Unsqueeze the specified keys
+        for key in self.keys:
+            output[key] = context[key].unsqueeze(dim=self.dim)
+        return output
+
+
 class WavelengthPositionalEncoding(SupportsDictInput, nn.Module):
     """
     A positional encoding module that encodes the wavelengths.
@@ -309,15 +347,16 @@ class PositionalEncoding(nn.Module):
     def __init__(
         self,
         n_freqs: int,
-        encode_params: bool = True,
+        encode_theta: bool = True,
         base_freq: float = 2 * pi,
+        fusion_type: str = "concat",
     ) -> None:
         """
         Instantiate a `PositionalEncoding` object.
 
         Args:
             n_freqs: Number of frequencies to use.
-            encode_params: If True, the parameters are encoded.
+            encode_theta: If True, the parameters are encoded.
                 If False, only the time is encoded.
             base_freq: The base frequency. The frequencies used are
                 `base_freq * 2^k`, with `k = 0, ..., n_freqs - 1`.
@@ -326,8 +365,9 @@ class PositionalEncoding(nn.Module):
         super(PositionalEncoding, self).__init__()
 
         self.n_freqs = n_freqs
-        self.encode_params = encode_params
+        self.encode_theta = encode_theta
         self.base_freq = base_freq
+        self.fusion_type = fusion_type
 
         # Create the frequencies and register them as a buffer
         freqs = (base_freq * 2 ** torch.arange(0, n_freqs)).view(1, 1, n_freqs)
@@ -342,24 +382,24 @@ class PositionalEncoding(nn.Module):
 
         # `t_theta` has shape (batch_size, 1 + theta_dim): The first column
         # contains the time, and the remaining columns contain the parameters.
-        if self.encode_params:
+        if self.encode_theta:
             x = t_theta.view(batch_size, -1, 1) * self.freqs
         else:
             x = t_theta[:, 0:1].view(batch_size, 1, 1) * self.freqs
 
         # After selecting and reshaping, `x` now has shape:
-        # (batch_size, 1 + int(encode_params) * theta_dim, n_freqs)
+        # (batch_size, 1 + int(encode_theta) * theta_dim, n_freqs)
 
         # Apply the positional encoding and flatten the frequency dimension.
         # The shape of the output is:
-        # (batch_size, (1 + int(encode_params) * theta_dim) * n_freqs)
+        # (batch_size, (1 + int(encode_theta) * theta_dim) * n_freqs)
         cos_enc = torch.cos(x).view(batch_size, -1)
         sin_enc = torch.sin(x).view(batch_size, -1)
 
         # Stack together the original input and the positional encodings.
         # The shape of the output is:
         # (batch_size,
-        #  1 + dim_theta + 2 * (1 + int(encode_params) * theta_dim) * n_freqs)
+        #  1 + dim_theta + 2 * (1 + int(encode_theta) * theta_dim) * n_freqs)
         encoded = torch.cat((t_theta, cos_enc, sin_enc), dim=1)
 
         return encoded

@@ -55,7 +55,7 @@ model:
     - block_type: "PositionalEncoding"
       kwargs:
         n_freqs: 6
-        encode_params: false
+        encode_theta: false
     - block_type: "DenseResidualNet"
       kwargs:
         hidden_dims: [512, 512]

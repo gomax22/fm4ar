@@ -63,7 +63,7 @@ def test__create_embedding_net() -> None:
 
 
 @pytest.mark.parametrize(
-    "theta_dim, n_freqs, encode_params",
+    "theta_dim, n_freqs, encode_theta",
     [
         (5, 1, True),
         (13, 3, False),
@@ -72,7 +72,7 @@ def test__create_embedding_net() -> None:
 def test__positional_encoding(
     theta_dim: int,
     n_freqs: int,
-    encode_params: bool,
+    encode_theta: bool,
 ) -> None:
     """
     Test `PositionalEncoding`.
@@ -81,7 +81,7 @@ def test__positional_encoding(
     # Create a positional encoding module
     positional_encoding = PositionalEncoding(
         n_freqs=n_freqs,
-        encode_params=encode_params,
+        encode_theta=encode_theta,
     )
 
     # Create a batch with random input
@@ -92,7 +92,7 @@ def test__positional_encoding(
     # Check that the output has the correct shape
     assert encoded.shape == (
         batch_size,
-        1 + theta_dim + 2 * (1 + int(encode_params) * theta_dim) * n_freqs,
+        1 + theta_dim + 2 * (1 + int(encode_theta) * theta_dim) * n_freqs,
     )
 
 

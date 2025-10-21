@@ -181,9 +181,6 @@ class TransformerEncoder(nn.Module):
         Returns:
             logits: [B, 1] or [B, num_classes]
         """
-
-        # TODO: add support to handle different input shapes 
-        x = x.view(-1, self.in_channels, self.seq_length)  # Ensure input shape is [B, C, L]
         x = self.patch_embed(x)  # [B, num_patches, D]
         x = x + self.positional_embedding
         x = self.embedding_dropout(x)

@@ -62,7 +62,7 @@ model:
     - block_type: "PositionalEncoding"
       kwargs:
         n_freqs: 6
-        encode_params: false
+        encode_theta: false
     - block_type: "DenseResidualNet"
       kwargs:
         hidden_dims: [512, 512]
@@ -71,10 +71,6 @@ model:
         dropout: 0.0
 
   auxiliary_data_embedding_net:
-    - block_type: "PositionalEncoding"
-      kwargs:
-        n_freqs: 9
-        encode_params: false
     - block_type: "DenseResidualNet"
       kwargs:
         hidden_dims: [512, 512]
