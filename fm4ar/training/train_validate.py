@@ -18,6 +18,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from fm4ar.models.base import Base
     from fm4ar.models.fmpe import FMPEModel
 
+torch.backends.cudnn.allow_tf32 = True
+torch.backends.cuda.matmul.allow_tf32 = True
 
 
 def train_epoch(
