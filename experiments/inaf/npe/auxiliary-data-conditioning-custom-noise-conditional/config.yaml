@@ -124,11 +124,8 @@ training:
       enabled: true
       max_norm: 1.0
     logprob_evaluation:
-      interval: 10
+      interval: null
       n_samples: 2048
-      ode_solver:
-        method: "dopri5"
-        tolerance: 1.0e-4
     optimizer:
       type: "AdamW"
       kwargs:
@@ -137,7 +134,7 @@ training:
       type: "CosineAnnealingLR"
       kwargs:
         T_max: 20
-    use_amp: true
+    use_amp: false
 
 # -----------------------------------------------------------------------------
 # LOCAL SETTINGS
