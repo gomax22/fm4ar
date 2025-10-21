@@ -13,10 +13,11 @@ loss_kwargs: {}
 draw_samples:
   chunk_size: 1024
   n_samples: 2048
-  use_amp: False
-  shuffle: False
-  pin_memory: True
-  drop_last: False
+  batch_size: 1
+  use_amp: false
+  shuffle: false
+  pin_memory: true
+  drop_last: false
   n_workers: 16
   random_seed: 42
 
