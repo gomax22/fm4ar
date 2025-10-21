@@ -109,7 +109,8 @@ def get_noise_generator(config: dict) -> NoiseGenerator:
     noise_generator_kwargs = config["kwargs"]
 
     # Create the noise generator
-    if noise_generator_type == "DefaultNoiseGenerator":
-        return DefaultNoiseGenerator(**noise_generator_kwargs)
-    else:
-        raise ValueError(f"Unknown noise generator: {noise_generator_type}")
+    match noise_generator_type:
+        case "DefaultNoiseGenerator":
+            return DefaultNoiseGenerator(**noise_generator_kwargs)
+        case _:
+            raise ValueError(f"Unknown noise generator: {noise_generator_type}")

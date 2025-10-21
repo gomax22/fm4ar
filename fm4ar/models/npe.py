@@ -36,6 +36,7 @@ class NPEModel(Base):
         self,
         theta: torch.Tensor,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Compute the log probability of the given `theta`.
@@ -43,7 +44,7 @@ class NPEModel(Base):
 
         self.network.eval()
 
-        context_embedding = self.network.get_context_embedding(context)
+        context_embedding = self.network.get_context_embedding(context=context, aux_data=aux_data)
         log_prob = self.network.flow_wrapper.log_prob(
             theta=theta,
             context=context_embedding,
@@ -54,6 +55,7 @@ class NPEModel(Base):
     def sample_batch(
         self,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor | None,
         num_samples: int = 1,
     ) -> torch.Tensor:
         """
@@ -65,7 +67,7 @@ class NPEModel(Base):
 
         self.network.eval()
 
-        context_embedding = self.network.get_context_embedding(context)
+        context_embedding = self.network.get_context_embedding(context=context, aux_data=aux_data)
         samples = self.network.flow_wrapper.sample(
             num_samples=num_samples,
             context=context_embedding,
@@ -76,6 +78,7 @@ class NPEModel(Base):
     def sample_and_log_prob_batch(
         self,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor | None,
         num_samples: int = 1,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -87,7 +90,7 @@ class NPEModel(Base):
 
         self.network.eval()
 
-        context_embedding = self.network.get_context_embedding(context)
+        context_embedding = self.network.get_context_embedding(context=context, aux_data=aux_data)
         samples, log_prob = self.network.flow_wrapper.sample_and_log_prob(
             num_samples=num_samples,
             context=context_embedding,
@@ -99,6 +102,7 @@ class NPEModel(Base):
         self,
         theta: torch.Tensor,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor | None,
         **kwargs: Any,
     ) -> torch.Tensor:
         """
@@ -106,7 +110,7 @@ class NPEModel(Base):
         the mean negative log probability).
         """
 
-        logprob = self.network(theta=theta, context=context)
+        logprob = self.network(theta=theta, context=context, aux_data=aux_data)
         return -logprob.mean()  # type: ignore
 
 
@@ -119,6 +123,7 @@ class NPENetwork(nn.Module):
     def __init__(
         self,
         context_embedding_net: nn.Module,
+        auxiliary_data_embedding_net: nn.Module,
         flow_wrapper: FlowWrapper,
     ) -> None:
         """
@@ -132,11 +137,13 @@ class NPENetwork(nn.Module):
         super().__init__()
 
         self.context_embedding_net = context_embedding_net
+        self.auxiliary_data_embedding_net = auxiliary_data_embedding_net
         self.flow_wrapper = flow_wrapper
 
     def get_context_embedding(
         self,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Get the embedding of the context. We wrap this in a separate
@@ -144,13 +151,20 @@ class NPENetwork(nn.Module):
         a dictionary, we need to convert it to a `frozendict` first to
         allow caching with the `lru_cache` decorator.
         """
+        context_embedding = self.context_embedding_net(context)
 
-        return torch.Tensor(self.context_embedding_net(context))
+        if isinstance(self.auxiliary_data_embedding_net, nn.Identity):
+            return torch.Tensor(context_embedding)
+        else:
+            aux_data_embedding = self.auxiliary_data_embedding_net(aux_data)
+            return torch.cat([context_embedding, aux_data_embedding], dim=-1)
+        # return torch.Tensor(self.context_embedding_net(context))
 
     def forward(
         self,
         theta: torch.Tensor,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor | None = None,   
     ) -> torch.Tensor:
         """
         Forward pass through the model. This returns the log probability
@@ -159,7 +173,7 @@ class NPENetwork(nn.Module):
         """
 
         # Get the embedding of the context (with caching)
-        context_embedding = self.get_context_embedding(context=context)
+        context_embedding = self.get_context_embedding(context=context, aux_data=aux_data)
 
         return self.flow_wrapper.log_prob(
             theta=theta,
@@ -184,6 +198,7 @@ def create_npe_network(model_config: dict) -> NPENetwork:
     # `prepare_new()` method that is called at the start of training.
     dim_theta = int(model_config["dim_theta"])
     dim_context = int(model_config["dim_context"])
+    dim_auxiliary_data = int(model_config["dim_auxiliary_data"]) if "dim_auxiliary_data" in list(model_config.keys()) else 0
 
     # Construct an embedding network for the context
     context_embedding_net, dim_embedded_context = create_embedding_net(
@@ -192,12 +207,19 @@ def create_npe_network(model_config: dict) -> NPENetwork:
         supports_dict_input=True,
     )
 
+    auxiliary_data_embedding_net, dim_auxiliary_data_embedded_context = create_embedding_net(
+        input_shape=(dim_auxiliary_data,),
+        block_configs=model_config["auxiliary_data_embedding_net"],
+        supports_dict_input=False,
+    ) if "auxiliary_data_embedding_net" in list(model_config.keys()) else (nn.Identity(), 0)
+
+
     # Construct the actual discrete normalizing flow
     # We use a `FlowWrapper` to wrap the actual flow and handle the different
     # conventions used by different flows libraries (normflows vs. glasflow)
     flow_wrapper = create_flow_wrapper(
         dim_theta=dim_theta,
-        dim_context=dim_embedded_context,
+        dim_context=dim_embedded_context + dim_auxiliary_data_embedded_context,
         flow_wrapper_config=model_config["flow_wrapper"],
     )
 
@@ -205,6 +227,7 @@ def create_npe_network(model_config: dict) -> NPENetwork:
     network = NPENetwork(
         flow_wrapper=flow_wrapper,
         context_embedding_net=context_embedding_net,
+        auxiliary_data_embedding_net=auxiliary_data_embedding_net,
     )
 
     return network

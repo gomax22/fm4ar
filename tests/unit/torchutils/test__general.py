@@ -11,6 +11,7 @@ import torch
 from fm4ar.nn.modules import Sine
 from fm4ar.torchutils.general import (
     check_for_nans,
+    move_batch_to_device,
     get_activation_from_name,
     get_cuda_info,
     get_number_of_parameters,
@@ -46,6 +47,55 @@ def test__check_for_nans() -> None:
         check_for_nans(tensor, "my_tensor")
     assert "Inf values detected in my_tensor" in str(value_error)
 
+def test_move_batch_to_device_cpu():
+    """Test moving a batch to CPU and separating theta, context, and aux_data."""
+    # Create a mock batch
+    batch = {
+        "theta": torch.randn(4, 3),
+        "flux": torch.randn(4, 10),
+        "wlen": torch.randn(4, 10),
+        "aux_data": torch.randn(4, 2),
+    }
+
+    device = torch.device("cpu")
+    theta, context, aux_data = move_batch_to_device(batch.copy(), device)
+
+    # Check devices
+    assert theta.device == device
+    assert aux_data.device == device
+    for val in context.values():
+        assert val.device == device
+
+    # Check separation
+    assert "theta" not in context
+    assert "aux_data" not in context
+    assert set(context.keys()) == {"flux", "wlen"}
+    assert theta.shape == (4, 3)
+    assert aux_data.shape == (4, 2)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_move_batch_to_device_cuda():
+    """Test moving a batch to GPU if available."""
+    batch = {
+        "theta": torch.randn(2, 5),
+        "flux": torch.randn(2, 8),
+        "wlen": torch.randn(2, 8),
+    }
+
+    device = torch.device("cuda")
+    theta, context, aux_data = move_batch_to_device(batch.copy(), device)
+
+    # Check devices
+    assert theta.device == device
+    for val in context.values():
+        assert val.device == device
+
+    # aux_data should be None if not present
+    assert aux_data is None
+
+    # Check separation
+    assert "theta" not in context
 
 @pytest.mark.parametrize(
     "activation_name, expected_activation",

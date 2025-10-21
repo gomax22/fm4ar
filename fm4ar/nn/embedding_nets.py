@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 
 from fm4ar.nn.resnets import DenseResidualNet
+from fm4ar.nn.transformers import TransformerEncoder
 from fm4ar.torchutils.weights import load_and_or_freeze_model_weights
 
 
@@ -49,6 +50,8 @@ def block_type_string_to_class(block_type: str) -> type:
             return Concatenate
         case "DenseResidualNet":
             return DenseResidualNet
+        case "TransformerEncoder":
+            return TransformerEncoder
         case "PositionalEncoding":
             return PositionalEncoding
         case "SoftClipFlux":
@@ -255,10 +258,50 @@ class Concatenate(SupportsDictInput, nn.Module):
         return context_tensor
 
 
+class WavelengthPositionalEncoding(SupportsDictInput, nn.Module):
+    """
+    A positional encoding module that encodes the wavelengths.
+    """
+
+    requires_input_shape = False
+
+    def __init__(self, keys: list[str]) -> None:
+        """
+        Instantiate a `WavelengthPositionalEncoding` block.
+
+        Args:
+            keys: The keys of the context dictionary to use for the
+                positional encoding. The wavelengths are expected to
+                be under the "wlen" key.
+        """
+
+        super(WavelengthPositionalEncoding, self).__init__()
+
+        self.keys = keys
+        self.required_keys = keys
+
+    def forward(self, context: Mapping[str, torch.Tensor]) -> torch.Tensor:
+        """
+        Forward pass through the `WavelengthPositionalEncoding` block.
+        """
+
+        wlen = context["wlen"]
+        flux = context["flux"]
+        noise = context.get("error_bars", None)
+
+        # TODO: implement the positional encoding here
+        # We must ensure that the flux information content is preserved as
+        # wavelenghts (in um) can be several orders of magnitude larger than the
+        # flux values. Should we normalize the wavelengths first? Even after 
+        # normalization, the wavelength range can be much larger than the
+        # flux range. 
+        pass            
+
+
 class PositionalEncoding(nn.Module):
     """
     A positional encoding module that can be used to encode the time
-    and/or the target parameters.
+    and/or the parameters.
     """
 
     requires_input_shape = False
@@ -266,7 +309,7 @@ class PositionalEncoding(nn.Module):
     def __init__(
         self,
         n_freqs: int,
-        encode_theta: bool = True,
+        encode_params: bool = True,
         base_freq: float = 2 * pi,
     ) -> None:
         """
@@ -274,7 +317,7 @@ class PositionalEncoding(nn.Module):
 
         Args:
             n_freqs: Number of frequencies to use.
-            encode_theta: If True, the target parameters are encoded.
+            encode_params: If True, the parameters are encoded.
                 If False, only the time is encoded.
             base_freq: The base frequency. The frequencies used are
                 `base_freq * 2^k`, with `k = 0, ..., n_freqs - 1`.
@@ -283,7 +326,7 @@ class PositionalEncoding(nn.Module):
         super(PositionalEncoding, self).__init__()
 
         self.n_freqs = n_freqs
-        self.encode_theta = encode_theta
+        self.encode_params = encode_params
         self.base_freq = base_freq
 
         # Create the frequencies and register them as a buffer
@@ -299,24 +342,24 @@ class PositionalEncoding(nn.Module):
 
         # `t_theta` has shape (batch_size, 1 + theta_dim): The first column
         # contains the time, and the remaining columns contain the parameters.
-        if self.encode_theta:
+        if self.encode_params:
             x = t_theta.view(batch_size, -1, 1) * self.freqs
         else:
             x = t_theta[:, 0:1].view(batch_size, 1, 1) * self.freqs
 
         # After selecting and reshaping, `x` now has shape:
-        # (batch_size, 1 + int(encode_theta) * theta_dim, n_freqs)
+        # (batch_size, 1 + int(encode_params) * theta_dim, n_freqs)
 
         # Apply the positional encoding and flatten the frequency dimension.
         # The shape of the output is:
-        # (batch_size, (1 + int(encode_theta) * theta_dim) * n_freqs)
+        # (batch_size, (1 + int(encode_params) * theta_dim) * n_freqs)
         cos_enc = torch.cos(x).view(batch_size, -1)
         sin_enc = torch.sin(x).view(batch_size, -1)
 
         # Stack together the original input and the positional encodings.
         # The shape of the output is:
         # (batch_size,
-        #  1 + dim_theta + 2 * (1 + int(encode_theta) * theta_dim) * n_freqs)
+        #  1 + dim_theta + 2 * (1 + int(encode_params) * theta_dim) * n_freqs)
         encoded = torch.cat((t_theta, cos_enc, sin_enc), dim=1)
 
         return encoded

@@ -5,7 +5,6 @@ Tests for `fm4py.importance_sampling.utils`.
 import numpy as np
 
 from fm4ar.importance_sampling.utils import (
-    clip_and_normalize_weights,
     compute_effective_sample_size,
     compute_is_weights,
     compute_log_evidence,
@@ -97,30 +96,6 @@ def test__compute_is_weights() -> None:
     )
     assert np.allclose(np.sum(normalized_weights), 3)
     assert np.allclose(normalized_weights, [1.0, 1.0, 1.0])
-
-
-def test__clip_and_normalize_weights() -> None:
-    """
-    Test `clip_and_normalize_weights()`.
-    """
-
-    rng = np.random.default_rng(42)
-    raw_log_weights = np.log10(rng.uniform(0, 1, 10_000))
-
-    # Case 1
-    normalized_weights = clip_and_normalize_weights(
-        raw_log_weights=raw_log_weights,
-        percentile=None,
-    )
-    assert np.allclose(np.max(normalized_weights), 1.4382241623505292)
-
-    # Case 2
-    normalized_weights = clip_and_normalize_weights(
-        raw_log_weights=raw_log_weights,
-        percentile=0.95,
-    )
-    assert np.allclose(np.max(normalized_weights), 1.0028639021473102)
-
 
 def test__compute_log_evidence() -> None:
     """

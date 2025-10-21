@@ -9,7 +9,7 @@ import torch
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 
-from fm4ar.torchutils.general import check_for_nans
+from fm4ar.torchutils.general import check_for_nans, move_batch_to_device
 from fm4ar.torchutils.schedulers import perform_scheduler_step
 from fm4ar.training.stages import StageConfig
 from fm4ar.utils.tracking import LossInfo
@@ -18,37 +18,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fm4ar.models.base import Base
     from fm4ar.models.fmpe import FMPEModel
 
-
-def move_batch_to_device(
-    batch: dict[str, torch.Tensor],
-    device: torch.device,
-) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    """
-    Move a batch of data to the given device.
-
-    This function also separates `theta` from the `context` (to make
-    sure no model every accidentally receives `theta` as an input).
-
-    Args:
-        batch: A dictionary containing the batch data.
-        device: The device to which to move the data.
-
-    Returns:
-        A 2-tuple, `(theta, context)`, where `theta` is are the target
-        parameters and `context` is the context dict.
-    """
-
-    # Move everthing to the device first
-    batch = {
-        key: value.to(device, non_blocking=True)
-        for key, value in batch.items()
-    }
-
-    # Separate theta from context
-    theta = batch.pop("theta")
-    context = batch
-
-    return theta, context
 
 
 def train_epoch(
@@ -86,7 +55,7 @@ def train_epoch(
         len_dataset=len(dataloader.dataset),  # type: ignore
         batch_size=int(dataloader.batch_size),  # type: ignore
         mode="Train",
-        print_freq=10,
+        print_freq=1,
     )
 
     # Create scaler for automatic mixed precision
@@ -99,7 +68,7 @@ def train_epoch(
         loss_info.update_timer()
 
         # Move data to device
-        theta, context = move_batch_to_device(batch, model.device)
+        theta, context, aux_data = move_batch_to_device(batch, model.device)
 
         # Reset gradients
         model.optimizer.zero_grad(set_to_none=True)
@@ -111,6 +80,7 @@ def train_epoch(
             loss = model.loss(
                 theta=theta,
                 context=context,
+                aux_data=aux_data,
                 **stage_config.loss_kwargs,
             )
             check_for_nans(loss, "train loss")
@@ -137,6 +107,7 @@ def train_epoch(
                 loss = model.loss(
                     theta=theta,
                     context=context,
+                    aux_data=aux_data,
                     **stage_config.loss_kwargs,
                 )
                 check_for_nans(loss, "train loss")
@@ -209,7 +180,7 @@ def validate_epoch(
             len_dataset=len(dataloader.dataset),  # type: ignore
             batch_size=dataloader.batch_size,  # type: ignore
             mode="Validate",
-            print_freq=10,
+            print_freq=1,
         )
 
         # Iterate over the batches
@@ -219,12 +190,13 @@ def validate_epoch(
             loss_info.update_timer()
 
             # Move data to device
-            theta, context = move_batch_to_device(batch, model.device)
+            theta, context, aux_data = move_batch_to_device(batch, model.device)
 
             # Compute validation loss
             loss = model.loss(
                 theta=theta,
                 context=context,
+                aux_data=aux_data,
                 **stage_config.loss_kwargs,
             )
             check_for_nans(loss, "validation loss")
@@ -257,7 +229,7 @@ def validate_epoch(
 
         # Get the first batch of the dataloader and move it to the device
         batch = next(iter(dataloader))
-        theta, context = move_batch_to_device(batch, model.device)
+        theta, context, aux_data = move_batch_to_device(batch, model.device)
 
         # Check the `model` is an FMPE model and select any additional kwargs
         # for the ODE solver that we might need. Note: We cannot directly use
@@ -276,6 +248,7 @@ def validate_epoch(
             logprob = model.log_prob_batch(
                 theta=theta[:n_samples],
                 context={k: v[:n_samples] for k, v in context.items()},
+                aux_data=aux_data[:n_samples] if aux_data is not None else None,
                 **extra_kwargs,
             )
 

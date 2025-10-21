@@ -6,25 +6,64 @@ import platform
 from typing import Literal
 
 import torch
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset
 
 from fm4ar.utils.multiproc import get_number_of_available_cores
 
 
-def build_dataloaders(
+def build_dataloader(
     dataset: Dataset,
-    n_train_samples: int,
-    n_valid_samples: int,
+    batch_size: int,
+    shuffle: bool,
+    n_workers: int,
+    drop_last: bool,
+    pin_memory: bool = True,
+    random_seed: int = 42,
+) -> DataLoader:
+    """
+    Build a `DataLoader` for the given `dataset`.
+
+    Args:
+        dataset: Dataset to build the `DataLoader` for.
+        batch_size: Batch size for the `DataLoader`.
+        shuffle: Whether to shuffle the data at every epoch.
+        n_workers: Number of workers for the `DataLoader`.
+        drop_last: Whether to drop the last batch if it is smaller than
+            `batch_size`.
+        pin_memory: Whether to use pinned memory for the `DataLoader`.
+        random_seed: Random seed for reproducibility.
+
+    Returns:
+        The `DataLoader`.
+    """
+
+    # Build the test loader
+    dataloader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        drop_last=drop_last,
+        pin_memory=pin_memory,
+        num_workers=n_workers,
+        persistent_workers=(n_workers > 0),
+        generator=torch.Generator().manual_seed(random_seed),
+    )
+
+    return dataloader
+
+def build_dataloaders(
+    train_dataset: Dataset,
+    valid_dataset: Dataset,
     batch_size: int,
     n_workers: int,
-    drop_last: bool = True,
     random_seed: int = 42,
 ) -> tuple[DataLoader, DataLoader]:
     """
     Build train and validation `DataLoaders` for the given `dataset`.
 
     Args:
-        dataset: Full dataset to be split into train and test sets.
+        train_dataset: Dataset to use for training.
+        valid_dataset: Dataset to use for validation.
         n_train_samples: Number of samples to use for training.
         n_valid_samples: Number of samples to use for validation.
         batch_size: Batch size for the train and test loaders.
@@ -37,35 +76,26 @@ def build_dataloaders(
         A 2-tuple: `(train_loader, valid_loader)`.
     """
 
-    # Split the dataset into train and validation sets
-    train_dataset, valid_dataset = random_split(
-        dataset=dataset,
-        lengths=[n_train_samples, n_valid_samples],
-        generator=torch.Generator().manual_seed(random_seed + 0),
-    )
-
     # Build the train loader
-    train_loader = DataLoader(
+    train_loader = build_dataloader(
         dataset=train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        drop_last=drop_last,
+        n_workers=n_workers,
+        drop_last=False,
         pin_memory=True,
-        num_workers=n_workers,
-        persistent_workers=(n_workers > 0),
-        generator=torch.Generator().manual_seed(random_seed + 1),
+        random_seed=random_seed + 1,
     )
 
     # Build the validation loader
-    valid_loader = DataLoader(
+    valid_loader = build_dataloader(
         dataset=valid_dataset,
         batch_size=batch_size,
         shuffle=False,
+        n_workers=n_workers,
         drop_last=False,
         pin_memory=True,
-        num_workers=n_workers,
-        persistent_workers=(n_workers > 0),
-        generator=torch.Generator().manual_seed(random_seed + 2),
+        random_seed=random_seed + 2,
     )
 
     return train_loader, valid_loader

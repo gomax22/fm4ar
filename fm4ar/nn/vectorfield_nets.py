@@ -14,7 +14,8 @@ from fm4ar.torchutils.weights import load_and_or_freeze_model_weights
 
 def create_vectorfield_net(
     dim_input: int,
-    dim_glu: int | None,
+    dim_first_glu: int | None,
+    dim_second_glu: int | None,
     dim_output: int,
     network_config: dict[str, Any],
 ) -> torch.nn.Module:
@@ -51,7 +52,8 @@ def create_vectorfield_net(
             vectorfield_net = DenseResidualNet(
                 input_shape=(dim_input,),
                 output_dim=dim_output,
-                context_features=dim_glu,
+                first_context_features=dim_first_glu,
+                second_context_features=dim_second_glu,
                 **network_kwargs,
             )
         case _:  # pragma: no cover

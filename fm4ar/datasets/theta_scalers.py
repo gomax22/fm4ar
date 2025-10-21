@@ -13,8 +13,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from fm4ar.datasets.vasist_2023.prior import LOWER, UPPER
-
+from fm4ar.utils.paths import expand_env_variables_in_path
 
 class ThetaScaler(ABC):
     """
@@ -147,33 +146,53 @@ def get_theta_scaler(config: dict[str, Any]) -> ThetaScaler:
     return scaler
 
 
-def get_mean_and_std(dataset: str) -> tuple[np.ndarray, np.ndarray]:
+def get_mean_and_std(dataset: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
     """
     Get the mean and standard deviation of the target parameters.
     """
-
-    if dataset == "vasist_2023":
-        a = np.array(LOWER)
-        b = np.array(UPPER)
-        mean = (a + b) / 2
-        std = np.sqrt(1 / 12 * (b - a) ** 2)
-
-    else:
-        raise ValueError(f"Unknown dataset: {dataset}")
-
+    match dataset:
+        case "vasist_2023":
+            from fm4ar.datasets.vasist_2023.prior import LOWER, UPPER
+            a = np.array(LOWER)
+            b = np.array(UPPER)
+            mean = (a + b) / 2
+            std = np.sqrt(1 / 12 * (b - a) ** 2)
+        case "inaf":
+            from fm4ar.datasets.inaf import load_normalization_params
+            norm_params = load_normalization_params(
+                file_path=expand_env_variables_in_path(
+                    kwargs.get("file_path", None)
+                )
+            )
+            mean = norm_params["theta"]["train"]["mean"]
+            std = norm_params["theta"]["train"]["std"]
+            del norm_params
+        case _:
+            raise ValueError(f"Unknown dataset: {dataset}")
+        
     return mean, std
 
 
-def get_min_and_max(dataset: str) -> tuple[np.ndarray, np.ndarray]:
+def get_min_and_max(dataset: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
     """
     Get the minimum and maximum of the target parameters.
     """
-
-    if dataset == "vasist_2023":
-        minimum = np.array(LOWER)
-        maximum = np.array(UPPER)
-
-    else:
-        raise ValueError(f"Unknown dataset: {dataset}")
-
+    match dataset:
+        case "vasist_2023":
+            from fm4ar.datasets.vasist_2023.prior import LOWER, UPPER
+            minimum = np.array(LOWER)
+            maximum = np.array(UPPER)
+        case "inaf":
+            from fm4ar.datasets.inaf import load_normalization_params
+            norm_params = load_normalization_params(
+                file_path=expand_env_variables_in_path(
+                    kwargs.get("file_path", None)
+                )
+            )
+            minimum = norm_params["theta"]["train"]["min"]
+            maximum = norm_params["theta"]["train"]["max"]
+            del norm_params
+        case _:
+            raise ValueError(f"Unknown dataset: {dataset}")
+    
     return minimum, maximum

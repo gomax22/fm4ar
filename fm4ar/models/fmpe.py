@@ -13,6 +13,7 @@ from fm4ar.nn.embedding_nets import create_embedding_net
 from fm4ar.nn.vectorfield_nets import create_vectorfield_net
 from fm4ar.torchutils.general import set_random_seed
 from fm4ar.utils.shapes import validate_dims
+from fm4ar.time_priors import get_time_prior
 
 
 class FMPEModel(Base):
@@ -35,7 +36,11 @@ class FMPEModel(Base):
         model_config = self.config["model"]
 
         self.sigma_min = model_config["sigma_min"]
-        self.time_prior_exponent = model_config.get("time_prior_exponent", 0.0)
+
+        time_prior_config = model_config["time_prior"]
+        time_prior_config["kwargs"]["device"] = self.device
+
+        self.time_prior_distribution = get_time_prior(time_prior_config)
         self.dim_theta = model_config["dim_theta"]
 
     def evaluate_vectorfield(
@@ -43,6 +48,7 @@ class FMPEModel(Base):
         t: float | torch.Tensor,
         theta_t: torch.Tensor,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor = None,
     ) -> torch.Tensor:
         """
         Evaluate the vectorfield at the given time and parameter values.
@@ -68,6 +74,7 @@ class FMPEModel(Base):
             t=t,
             theta=theta_t,
             context=context,
+            aux_data=aux_data,
         )
 
     def initialize_network(self) -> None:
@@ -93,6 +100,7 @@ class FMPEModel(Base):
         self,
         theta: torch.Tensor,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor = None,
         tolerance: float = 1e-7,
         method: str = "dopri5",
     ) -> torch.Tensor:
@@ -108,6 +116,7 @@ class FMPEModel(Base):
         Args:
             theta: Parameter values for which to evaluate the log_prob.
             context: Context (i.e., observed data).
+            aux_data: Auxiliary data (e.g., planetary system data).
             tolerance: Tolerance (atol and rtol) for the ODE solver.
             method: ODE solver method. Default is "dopri5".
 
@@ -126,7 +135,7 @@ class FMPEModel(Base):
         # note the `flip()` of the integration range
         _, theta_and_div_0 = odeint(
             func=lambda t, theta_and_div_t: self.rhs_of_joint_ode(
-                t, theta_and_div_t, context
+                t, theta_and_div_t, context, aux_data
             ),
             y0=theta_and_div_init,
             t=torch.flip(self.integration_range, dims=(0,)),
@@ -145,6 +154,7 @@ class FMPEModel(Base):
         self,
         theta: torch.Tensor,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor = None,
         **kwargs: Any,
     ) -> torch.Tensor:
         """
@@ -155,19 +165,19 @@ class FMPEModel(Base):
         Args:
             theta: Parameters.
             context: Context (i.e., observed data).
+            aux_data: Auxiliary data (e.g., planetary system data).
 
         Returns:
             Loss tensor.
         """
 
-        # Get the time prior exponent from the kwargs, if provided. This can
-        # be used, e.g., to increase the time prior exponent during training.
-        time_prior_exponent = kwargs.get("time_prior_exponent", None)
+        # # Get the time prior exponent from the kwargs, if provided. This can
+        # # be used, e.g., to increase the time prior exponent during training.
+        # time_prior_exponent = kwargs.get("time_prior_exponent", None)
 
         # Sample a time t and some starting parameters theta_0
-        t = self.sample_t(
+        t = self.time_prior_distribution.sample_t(
             num_samples=len(theta),
-            time_prior_exponent=time_prior_exponent,
         )
         theta_0 = self.sample_theta_0(num_samples=len(theta))
 
@@ -182,7 +192,12 @@ class FMPEModel(Base):
 
         # Compute the true vectorfield and the predicted vectorfield
         true_vf = theta - (1 - self.sigma_min) * theta_0
-        pred_vf = self.network(t=t, theta=theta_t, context=context)
+        pred_vf = self.network(
+            t=t, 
+            theta=theta_t, 
+            context=context, 
+            aux_data=aux_data
+        )
 
         # Calculate loss as MSE between the true and predicted vectorfield
         loss = torch.nn.functional.mse_loss(pred_vf, true_vf)
@@ -194,6 +209,7 @@ class FMPEModel(Base):
         t: float,
         theta_and_div_t: torch.Tensor,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor = None,
     ) -> torch.Tensor:
         """
         Returns the right hand side of the neural ODE that is used to
@@ -208,6 +224,7 @@ class FMPEModel(Base):
             t: Time (controls the noise level).
             theta_and_div_t: Concatenated tensor of `(theta_t, div)`.
             context: Context (i.e., observed data).
+            aux_data: Auxiliary data (e.g., planetary system data).
 
         Returns:
             The vector field that generates the continuous flow, plus
@@ -217,13 +234,14 @@ class FMPEModel(Base):
         theta_t = theta_and_div_t[:, :-1]  # extract theta_t
         with torch.enable_grad():  # type: ignore
             theta_t.requires_grad_(True)
-            vf = self.evaluate_vectorfield(t, theta_t, context)
+            vf = self.evaluate_vectorfield(t, theta_t, context, aux_data)
             div_vf = self.compute_divergence(vf=vf, theta_t=theta_t)
         return torch.cat((vf, -div_vf), dim=1)
 
     def sample_and_log_prob_batch(
         self,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor = None,
         num_samples: int = 1,
         tolerance: float = 1e-7,
         method: str = "dopri5",
@@ -243,6 +261,7 @@ class FMPEModel(Base):
 
         Args:
             context: Context (i.e., observed data).
+            aux_data: Auxiliary data (e.g., planetary system data).
             num_samples: Number of posterior samples to generate in the
                 unconditional case. If `context` is provided, the number
                 of samples is automatically determined from the context.
@@ -269,7 +288,7 @@ class FMPEModel(Base):
         # Integrate forwards in time to get from theta_0 to theta_1
         _, theta_and_div_1 = odeint(
             func=lambda t, theta_and_div_t: self.rhs_of_joint_ode(
-                t, theta_and_div_t, context
+                t, theta_and_div_t, context, aux_data   
             ),
             y0=theta_and_div_init,
             t=self.integration_range,
@@ -285,6 +304,7 @@ class FMPEModel(Base):
     def sample_batch(
         self,
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor = None,
         num_samples: int = 1,
         tolerance: float = 1e-7,
         method: str = "dopri5",
@@ -295,6 +315,7 @@ class FMPEModel(Base):
 
         Args:
             context: Context (i.e., observed data).
+            aux_data: Auxiliary data (e.g., planetary system data).
             num_samples: Number of posterior samples to generate in the
                 unconditional case. If `context` is provided, the number
                 of samples is automatically determined from the context.
@@ -317,7 +338,7 @@ class FMPEModel(Base):
             theta_0 = self.sample_theta_0(num_samples)
             _, theta_1 = odeint(
                 func=lambda t, theta_t: self.evaluate_vectorfield(
-                    t, theta_t, context
+                    t, theta_t, context, aux_data
                 ),
                 y0=theta_0,
                 t=self.integration_range,
@@ -327,27 +348,6 @@ class FMPEModel(Base):
             )
 
         return torch.Tensor(theta_1)
-
-    def sample_t(
-        self,
-        num_samples: int,
-        time_prior_exponent: float | None = None,
-    ) -> torch.Tensor:
-        """
-        Sample time `t` (in [0, 1]) from a power law distribution.
-        """
-
-        # If time_prior_exponent is not provided, use the default value
-        if time_prior_exponent is None:
-            time_prior_exponent = self.time_prior_exponent
-
-        # Sample t from a power law distribution
-        # exponent = 0 corresponds to a uniform distribution (equal weights)
-        # exponent = 1 corresponds to a linear distribution (more weight on 1)
-        t = torch.rand(num_samples, device=self.device)
-        t = torch.pow(t, 1 / (1 + time_prior_exponent))
-
-        return t
 
     def sample_theta_0(self, num_samples: int) -> torch.Tensor:
         """
@@ -438,8 +438,10 @@ class FMPENetwork(nn.Module):
         vectorfield_net: nn.Module,
         context_embedding_net: nn.Module,
         t_theta_embedding_net: nn.Module,
+        auxiliary_data_embedding_net: nn.Module,
         context_with_glu: bool,
         t_theta_with_glu: bool,
+        auxiliary_data_with_glu: bool,
     ) -> None:
         """
         Instantiate a new `FMPENetwork`.
@@ -448,10 +450,13 @@ class FMPENetwork(nn.Module):
             vectorfield_net: The network that learns the vector field.
             context_embedding_net: The context embedding network.
             t_theta_embedding_net: The (t, theta) embedding network.
+            auxiliary_data_embedding_net: The auxiliary data embedding network.
             context_with_glu: Whether to use a gated linear unit (GLU)
                 for the context embedding.
             t_theta_with_glu: Whether to use a gated linear unit (GLU)
                 for the (t, theta) embedding.
+            auxiliary_data_with_glu: Whether to use a gated linear unit (GLU)
+                for the auxiliary data embedding.
         """
 
         super(FMPENetwork, self).__init__()
@@ -459,8 +464,11 @@ class FMPENetwork(nn.Module):
         self.vectorfield_net = vectorfield_net
         self.context_embedding_net = context_embedding_net
         self.t_theta_embedding_net = t_theta_embedding_net
+        self.auxiliary_data_embedding_net = auxiliary_data_embedding_net
+
         self.context_with_glu = context_with_glu
         self.t_theta_with_glu = t_theta_with_glu
+        self.auxiliary_data_with_glu = auxiliary_data_with_glu
 
     def get_context_embedding(
         self,
@@ -480,6 +488,7 @@ class FMPENetwork(nn.Module):
         t: torch.Tensor,
         theta: torch.Tensor,  # note: this is theta _at time t_
         context: dict[str, torch.Tensor],
+        aux_data: torch.Tensor = None,
     ) -> torch.Tensor:
         """
         Forward pass through the continuous flow model, that is, compute
@@ -492,30 +501,61 @@ class FMPENetwork(nn.Module):
         t_theta_embedding = self.t_theta_embedding_net(t_theta)
         validate_dims(t_theta_embedding, 2)
 
+        # Get embedding of auxiliary data
+        if isinstance(self.auxiliary_data_embedding_net, nn.Identity):
+            aux_data = None
+            auxiliary_data_embedding = None
+        else:
+            auxiliary_data_embedding = self.auxiliary_data_embedding_net(aux_data)
+            validate_dims(auxiliary_data_embedding, 2)
+
         # Get the embedding of the context
         context_embedding = self.get_context_embedding(context)
         validate_dims(context_embedding, 2)
+
+        if self.context_with_glu and self.auxiliary_data_with_glu:
+            cf_input = torch.empty((len(aux_data), 0), device=aux_data.device)
+            first_glu_context = torch.cat((context_embedding, auxiliary_data_embedding), 1)
+        elif not self.context_with_glu and not self.auxiliary_data_with_glu:
+            cf_input = torch.cat((context_embedding, auxiliary_data_embedding), 1) if auxiliary_data_embedding is not None else context_embedding
+            first_glu_context = None
+        elif self.context_with_glu and not self.auxiliary_data_with_glu:
+            cf_input = auxiliary_data_embedding
+            first_glu_context = context_embedding
+        elif not self.context_with_glu and self.auxiliary_data_with_glu:
+            cf_input = context_embedding
+            first_glu_context = auxiliary_data_embedding
+        else:
+            raise RuntimeError("This should never happen!")  # pragma: no cover
+
 
         # Collect inputs for the continuous flow network:
         # There are two entry points, one "normal" and one via a GLU.
         if self.context_with_glu and self.t_theta_with_glu:
             cf_input = torch.empty((len(theta), 0), device=theta.device)
-            glu_context = torch.cat((context_embedding, t_theta_embedding), 1)
+            second_glu_context = torch.cat((cf_input, t_theta_embedding), 1)
         elif not self.context_with_glu and not self.t_theta_with_glu:
-            cf_input = torch.cat((context_embedding, t_theta_embedding), 1)
-            glu_context = None
+            cf_input = torch.cat((cf_input, t_theta_embedding), 1)
+            second_glu_context = None
         elif self.context_with_glu and not self.t_theta_with_glu:
             cf_input = t_theta_embedding
-            glu_context = context_embedding
+            second_glu_context = cf_input
         elif not self.context_with_glu and self.t_theta_with_glu:
-            cf_input = context_embedding
-            glu_context = t_theta_embedding
+            # cf_input = cf_input
+            second_glu_context = t_theta_embedding
         else:
             raise RuntimeError("This should never happen!")  # pragma: no cover
 
-        if glu_context is None:
-            return torch.Tensor(self.vectorfield_net(cf_input))
-        return torch.Tensor(self.vectorfield_net(cf_input, glu_context))
+
+        # if first_glu_context is None:
+        #     return torch.Tensor(self.vectorfield_net(cf_input))
+        return torch.Tensor(
+            self.vectorfield_net(
+                x=cf_input, 
+                first_context=first_glu_context,
+                second_context=second_glu_context
+                )
+            )
 
 
 def create_fmpe_network(model_config: dict) -> FMPENetwork:
@@ -535,24 +575,12 @@ def create_fmpe_network(model_config: dict) -> FMPENetwork:
     # `prepare_new()` method that is called at the start of training.
     dim_theta = int(model_config["dim_theta"])
     dim_context = int(model_config["dim_context"])
+    dim_auxiliary_data = int(model_config["dim_auxiliary_data"]) if "dim_auxiliary_data" in list(model_config.keys()) else 0
 
     # Check if we use GLU for embedded `t_theta` and / or `context`
     t_theta_with_glu = model_config.get("t_theta_with_glu", False)
     context_with_glu = model_config.get("context_with_glu", False)
-
-    # Sanity check: We can only use GLU if we use a DenseResidualNet for the
-    # vectorfield network (usually, this is only relevant if we want to train
-    # an unconditional model with a "simple" continuous flow network).
-    # fmt: off
-    if (  # pragma: no cover
-        model_config["vectorfield_net"]["network_type"] != "DenseResidualNet"
-        and (t_theta_with_glu or context_with_glu)
-    ):
-        raise ValueError(  # pragma: no cover
-            "Can only use GLU if `vectorfield_net.block_type` is "
-            "`DenseResidualNet`!"
-        )
-    # fmt: on
+    auxiliary_data_with_glu = model_config.get("auxiliary_data_with_glu", False)
 
     # Construct an embedding network for the context
     context_embedding_net, dim_embedded_context = create_embedding_net(
@@ -566,19 +594,33 @@ def create_fmpe_network(model_config: dict) -> FMPENetwork:
         input_shape=(dim_theta + 1,),
         block_configs=model_config["t_theta_embedding_net"],
     )
+    
+    # Construct an embedding network for auxiliary data
+    auxiliary_data_embedding_net, dim_embedded_auxiliary_data = create_embedding_net(
+        input_shape=(dim_auxiliary_data,),
+        block_configs=model_config["auxiliary_data_embedding_net"],
+    ) if "auxiliary_data_embedding_net" in list(model_config.keys()) else (nn.Identity(), 0)
 
     # Compute GLU dimensions and input dimension for continuous flow network
-    dim_glu = (
+    dim_first_glu = (
+        auxiliary_data_with_glu * dim_embedded_auxiliary_data
+        + context_with_glu * dim_embedded_context
+    )
+
+    dim_second_glu = (
         t_theta_with_glu * dim_embedded_t_theta
         + context_with_glu * dim_embedded_context
     )
-    dim_input = dim_embedded_t_theta + dim_embedded_context - dim_glu
-    dim_glu = dim_glu if dim_glu > 0 else None
+
+    dim_input = dim_embedded_context + dim_embedded_auxiliary_data + dim_embedded_t_theta - dim_first_glu - dim_second_glu
+    dim_first_glu = dim_first_glu if dim_first_glu > 0 else None
+    dim_second_glu = dim_second_glu if dim_second_glu > 0 else None
 
     # Construct the continuous flow network
     vectorfield_net = create_vectorfield_net(
         dim_input=dim_input,
-        dim_glu=dim_glu,
+        dim_first_glu=dim_first_glu,
+        dim_second_glu=dim_second_glu,
         dim_output=dim_theta,
         network_config=model_config["vectorfield_net"],
     )
@@ -588,8 +630,10 @@ def create_fmpe_network(model_config: dict) -> FMPENetwork:
         vectorfield_net=vectorfield_net,
         context_embedding_net=context_embedding_net,
         t_theta_embedding_net=t_theta_embedding_net,
+        auxiliary_data_embedding_net=auxiliary_data_embedding_net,
         t_theta_with_glu=t_theta_with_glu,
         context_with_glu=context_with_glu,
+        auxiliary_data_with_glu=auxiliary_data_with_glu,
     )
 
     return network

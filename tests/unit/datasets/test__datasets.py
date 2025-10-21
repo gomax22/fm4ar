@@ -1,112 +1,104 @@
 """
-Unit tests for `SpectraDataset` class and `load_dataset` function.
+Unit tests for `fm4ar.datasets.load_dataset`.
 """
 
-from pathlib import Path
-
-import h5py
-import numpy as np
 import pytest
-import torch
+from unittest.mock import patch, MagicMock
+from torch.utils.data import Dataset
 
 from fm4ar.datasets import load_dataset
 
 
-@pytest.fixture
-def path_to_dataset_1(tmp_path: Path) -> Path:
-    """
-    Create a dummy dataset (with a single wavelength for all spectra)
-    for testing and return the path to it.
-    """
+def test_load_dataset_vasist(monkeypatch):
+    """Test loading the Vasist dataset."""
 
-    # Create a dummy dataset
-    file_path = tmp_path / "dummy_dataset_1.hdf"
-    with h5py.File(file_path, "w") as f:
-        f.create_dataset("theta", data=np.arange(15).reshape(3, 5))
-        f.create_dataset("flux", data=np.arange(15).reshape(3, 5))
-        f.create_dataset("wlen", data=np.arange(5))
+    # Create mock datasets
+    mock_train = MagicMock(spec=Dataset)
+    mock_valid = MagicMock(spec=Dataset)
+    mock_test = MagicMock(spec=Dataset)
 
-    return file_path
+    # Mock VasistDatasetConfig and load_vasist_dataset
+    mock_config_class = MagicMock()
+    mock_config_instance = MagicMock()
+    mock_config_class.return_value = mock_config_instance
+    mock_load_dataset = MagicMock(return_value=(mock_train, mock_valid, mock_test))
 
+    monkeypatch.setattr("fm4ar.datasets.load_dataset.VasistDatasetConfig", mock_config_class)
+    monkeypatch.setattr("fm4ar.datasets.load_dataset.load_vasist_dataset", mock_load_dataset)
+    monkeypatch.setattr("fm4ar.datasets.load_dataset.expand_env_variables_in_path", lambda x: x)
 
-@pytest.fixture
-def path_to_dataset_2(tmp_path: Path) -> Path:
-    """
-    Create a dummy dataset (with different wavelengths for all spectra)
-    for testing and return the path to it.
-    """
-
-    # Create a dummy dataset
-    file_path = tmp_path / "dummy_dataset_2.hdf"
-    with h5py.File(file_path, "w") as f:
-        f.create_dataset("theta", data=np.arange(15).reshape(3, 5))
-        f.create_dataset("flux", data=np.arange(15).reshape(3, 5))
-        f.create_dataset("wlen", data=np.arange(15).reshape(3, 5))
-
-    return file_path
-
-
-def test__load_dataset_1(path_to_dataset_1: Path) -> None:
-    """
-    Unit test for `fm4ar.datasets.load_dataset`.
-
-    This test checks if the function can load a dataset with a single
-    wavelength for all spectra.
-    """
-
-    # Create the configuration
+    # Config dict
     config = {
         "dataset": {
-            "file_path": path_to_dataset_1,
-            "n_train_samples": 2,
-            "n_valid_samples": 0,
-            "random_seed": 42,
+            "name": "vasist_2023",
+            "file_path": "/fake/path",
+            "n_train_samples": 10,
+            "n_valid_samples": 5,
+            "n_test_samples": 3,
+        },
+        "theta_scaler": {},
+    }
+
+    train, valid, test = load_dataset(config)
+
+    # Assertions
+    assert train is mock_train
+    assert valid is mock_valid
+    assert test is mock_test
+    mock_load_dataset.assert_called_once()
+
+
+def test_load_dataset_inaf(monkeypatch):
+    """Test loading the INAF dataset."""
+
+    # Create mock datasets
+    mock_train = MagicMock(spec=Dataset)
+    mock_valid = MagicMock(spec=Dataset)
+    mock_test = MagicMock(spec=Dataset)
+
+    # Mock INAFDatasetConfig and load_inaf_dataset
+    mock_config_class = MagicMock()
+    mock_config_instance = MagicMock()
+    mock_config_class.return_value = mock_config_instance
+    mock_load_dataset = MagicMock(return_value=(mock_train, mock_valid, mock_test))
+
+    monkeypatch.setattr("fm4ar.datasets.load_dataset.INAFDatasetConfig", mock_config_class)
+    monkeypatch.setattr("fm4ar.datasets.load_dataset.load_inaf_dataset", mock_load_dataset)
+    monkeypatch.setattr("fm4ar.datasets.load_dataset.expand_env_variables_in_path", lambda x: x)
+    monkeypatch.setattr("fm4ar.datasets.load_dataset.get_theta_scaler", lambda cfg: "theta_scaler")
+    monkeypatch.setattr("fm4ar.datasets.load_dataset.get_auxiliary_data_scaler", lambda cfg: "aux_scaler")
+
+    # Config dict
+    config = {
+        "dataset": {
+            "name": "inaf",
+            "data_dir": "/fake/data/dir",
+            "limit": None,
+            "verbose": True,
+        },
+        "theta_scaler": {},
+        "auxiliary_data_scaler": {},
+    }
+
+    train, valid, test = load_dataset(config)
+
+    # Assertions
+    assert train is mock_train
+    assert valid is mock_valid
+    assert test is mock_test
+    mock_load_dataset.assert_called_once()
+
+
+def test_load_dataset_unknown_dataset():
+    """Test that an unknown dataset name raises ValueError."""
+
+    config = {
+        "dataset": {
+            "name": "unknown_dataset",
         }
     }
 
-    # Load the dataset
-    dataset = load_dataset(config)
+    with pytest.raises(ValueError) as excinfo:
+        load_dataset(config)
 
-    # Basic check of the dataset
-    assert len(dataset) == 2
-    assert dataset.theta.shape == torch.Size([2, 5])
-    assert dataset.flux.shape == torch.Size([2, 5])
-    assert dataset.wlen.shape == torch.Size([1, 5])
-    assert isinstance(dataset[0], dict)
-    assert sorted(dataset[0].keys()) == ["flux", "theta", "wlen"]
-    assert dataset[0]["theta"].shape == torch.Size([5])
-    assert dataset[0]["flux"].shape == torch.Size([5])
-    assert dataset[0]["wlen"].shape == torch.Size([5])
-
-
-def test__load_dataset_2(path_to_dataset_2: Path) -> None:
-    """
-    Unit test for `fm4ar.datasets.load_dataset`.
-
-    This test checks if the function can load a dataset with different
-    wavelengths for all spectra.
-    """
-
-    # Create the configuration
-    config = {
-        "dataset": {
-            "file_path": path_to_dataset_2,
-            "n_train_samples": 3,
-            "n_valid_samples": 0,
-            "random_seed": 42,
-        }
-    }
-
-    # Load the dataset
-    dataset = load_dataset(config)
-
-    # Basic check of the dataset
-    assert len(dataset) == 3
-    assert dataset.theta.shape == torch.Size([3, 5])
-    assert dataset.flux.shape == torch.Size([3, 5])
-    assert dataset.wlen.shape == torch.Size([3, 5])
-    assert isinstance(dataset[0], dict)
-    assert sorted(dataset[0].keys()) == ["flux", "theta", "wlen"]
-    assert dataset[0]["theta"].shape == torch.Size([5])
-    assert dataset[0]["flux"].shape == torch.Size([5])
-    assert dataset[0]["wlen"].shape == torch.Size([5])
+    assert "Unknown dataset name" in str(excinfo.value)

@@ -71,6 +71,8 @@ def get_data_transforms(
         match data_transform_config.type:
             case "AddNoise":
                 data_transform = AddNoise(config=data_transform_config.kwargs)
+            case "AddCustomNoise":
+                data_transform = AddCustomNoise(config=data_transform_config.kwargs)
             case "Subsample":
                 data_transform = Subsample(**data_transform_config.kwargs)
             case _:
@@ -116,6 +118,47 @@ class AddNoise(DataTransform):
 
         # Draw a noise realization and add it to the flux
         noise = self.noise_generator.sample_noise(error_bars=error_bars)
+        output["flux"] += noise
+
+        return output
+    
+
+class AddCustomNoise(DataTransform):
+    """
+    Use a `DefaultNoiseGenerator` to add custom noise to the given flux.
+    """
+
+    def __init__(self, config: dict) -> None:
+        """
+        Initialize a new `AddCustomNoise` transform.
+
+        Args:
+            config: This dictionary needs to contain two keys: `type`
+                specifies the type of noise generator to use (see the
+                `get_noise_generator` function), and `kwargs` contains
+                the keyword arguments that are passed to the constructor
+                of the noise generator.
+        """
+
+        super().__init__()
+
+        self.noise_generator = get_noise_generator(config=config)
+
+    def forward(self, x: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
+        """
+        Add noise to the given flux.
+        """
+
+        output = dict(x)
+
+        # Sample a scaling factor for the error bars
+        k = self.noise_generator.sample_error_bars(wlen=x["wlen"])
+
+        # Sample the error bars; store them in the output dictionary
+        output["error_bars"] = k * x["error_bars"]
+        
+        # Draw a noise realization and add it to the flux
+        noise = self.noise_generator.sample_noise(error_bars=output["error_bars"])
         output["flux"] += noise
 
         return output

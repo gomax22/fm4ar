@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# DATASET AND THETA SCALER
+# DATASET AND SCALERS
 # -----------------------------------------------------------------------------
 
 dataset:
@@ -43,7 +43,7 @@ model:
     - block_type: "PositionalEncoding"
       kwargs:
         n_freqs: 8
-        encode_theta: True
+        encode_params: True
     - block_type: "DenseResidualNet"
       kwargs:
         hidden_dims: [256, 256]

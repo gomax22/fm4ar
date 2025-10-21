@@ -8,14 +8,13 @@ from zlib import adler32
 
 import torch
 from pydantic import BaseModel, Field
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 
 from fm4ar.datasets import DatasetConfig
 from fm4ar.datasets.data_transforms import (
     DataTransformConfig,
     get_data_transforms,
 )
-from fm4ar.datasets.dataset import SpectraDataset
 from fm4ar.torchutils.dataloaders import (
     build_dataloaders,
     get_number_of_workers,
@@ -62,13 +61,6 @@ class StageConfig(BaseModel):
         ...,
         description="Transforms to apply to the dataset (e.g, add noise).",
     )
-    drop_last: bool = Field(
-        default=True,
-        description=(
-            "Whether the training dataloader should drop the last batch "
-            "if it is smaller than the batch size."
-        ),
-    )
     early_stopping: EarlyStoppingConfig
     epochs: int = Field(
         ...,
@@ -107,7 +99,8 @@ class StageConfig(BaseModel):
 
 def initialize_stage(
     model: "Base",
-    dataset: SpectraDataset,
+    train_dataset: Dataset,
+    valid_dataset: Dataset,
     resume: bool,
     stage_name: str,
     stage_config: StageConfig,
@@ -118,7 +111,8 @@ def initialize_stage(
 
     Args:
         model: Instance of the model.
-        dataset: Instance of the dataset.
+        train_dataset: Training dataset.
+        valid_dataset: Validation dataset.
         resume: Whether to resume from a checkpoint.
         stage_name: The name of the stage. This is only used to set
             the random seed for the data loaders to ensure that the
@@ -138,7 +132,8 @@ def initialize_stage(
     # These are the transforms that will be applied to the dataset in
     # __getitem__() and that are specific to the current stage (e.g.,
     # adding noise to the flux, re-binning the spectra, ...).
-    dataset.data_transforms = get_data_transforms(stage_config.data_transforms)
+    train_dataset.data_transforms = get_data_transforms(stage_config.data_transforms)
+    valid_dataset.data_transforms = get_data_transforms(stage_config.data_transforms)
 
     # Get the dataset configuration
     dataset_config = DatasetConfig(**model.config["dataset"])
@@ -154,12 +149,10 @@ def initialize_stage(
     # Create the train and test data loaders
     # Allows changes in batch size between stages
     train_loader, test_loader = build_dataloaders(
-        dataset=dataset,
-        n_train_samples=dataset_config.n_train_samples,
-        n_valid_samples=dataset_config.n_valid_samples,
+        train_dataset=train_dataset,
+        valid_dataset=valid_dataset,
         batch_size=stage_config.batch_size,
         n_workers=get_number_of_workers(stage_config.n_workers),
-        drop_last=stage_config.drop_last,
         random_seed=dataset_config.random_seed + offset,
     )
 
@@ -179,7 +172,8 @@ def initialize_stage(
 
 def train_stages(
     model: "Base",
-    dataset: SpectraDataset,
+    train_dataset: Dataset,
+    valid_dataset: Dataset,
 ) -> bool:
     """
     Train the network, iterating through the sequence of stages.
@@ -231,7 +225,8 @@ def train_stages(
         # Initialize the train and test loaders for the stage
         train_loader, test_loader = initialize_stage(
             model=model,
-            dataset=dataset,
+            train_dataset=train_dataset,
+            valid_dataset=valid_dataset,
             resume=resume,
             stage_name=stage_name,
             stage_config=stage_config,

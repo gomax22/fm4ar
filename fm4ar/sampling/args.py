@@ -1,0 +1,70 @@
+"""
+Argument parser for training scripts.
+"""
+
+import argparse  # pragma: no cover
+from pathlib import Path  # pragma: no cover
+
+
+def get_cli_arguments() -> argparse.Namespace:
+    """
+    Get the command line arguments.
+    """
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--experiment-dir",
+        type=Path,
+        required=True,
+        help="Path to the directory containing the trained model.",
+    )
+    parser.add_argument(
+        "--job",
+        type=int,
+        default=0,
+        help="Job number for parallel processing; must be in [0, n_jobs).",
+    )
+    parser.add_argument(
+        "--max-timeouts",
+        type=int,
+        default=0,
+        help=(
+            "Maximum number of timeouts before the job is resubmitted on a "
+            "different node. Default: 0 (= no timeouts allowed)."
+        ),
+    )
+    parser.add_argument(
+        "--n-jobs",
+        type=int,
+        default=1,
+        help="Number of parallel jobs. Default: 1.",
+    )
+    parser.add_argument(
+        "--stage",
+        type=str,
+        choices=[
+            "draw_samples",
+        ],
+        default=None,
+        help="Stage of the importance sampling workflow that should be run.",
+    )
+    parser.add_argument(
+        "--start-submission",
+        action="store_true",
+        help="If True, create a submission file and launch a job.",
+    )
+    parser.add_argument(
+        "--working-dir",
+        type=Path,
+        required=True,
+        help=(
+            "Path to the directory containing the importance sampling config "
+            "file. The importance sampling config file is expected to be "
+            "named `importance_sampling.yaml` (to reduce confusion). The path "
+            "can either be absolute, or relative to the `importance_sampling` "
+            "directory in the experiment directory."
+        ),
+    )
+    args = parser.parse_args()
+
+    return args

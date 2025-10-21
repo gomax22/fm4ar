@@ -7,6 +7,7 @@ import pytest
 
 from fm4ar.datasets.data_transforms import (
     AddNoise,
+    AddCustomNoise,
     DataTransformConfig,
     Subsample,
     get_data_transforms,
@@ -20,6 +21,44 @@ def test__add_noise() -> None:
 
     # Instantiate the transform
     transform = AddNoise(
+        config=dict(
+            type="DefaultNoiseGenerator",
+            kwargs=dict(
+                sigma_min=1.0,
+                sigma_max=1.0,
+                random_seed=42,
+            ),
+        )
+    )
+
+    # Create a dummy input
+    x = {
+        "wlen": np.linspace(0.95, 2.45, 1000),
+        "flux": np.zeros(1000),
+    }
+
+    # Apply the forward transformation
+    y = transform.forward(x)
+
+    # Check that the output has the same shape as the input
+    assert y["flux"].shape == x["flux"].shape
+    assert y["wlen"].shape == x["wlen"].shape
+
+    # Check that the wavelength array is unchanged
+    assert np.allclose(y["wlen"], x["wlen"])
+
+    # Ensure reproducibility (i.e., the same noise is added)
+    assert np.isclose(np.mean(y["flux"]), -0.029255550721727204)
+    assert np.isclose(np.std(y["flux"]), 0.9886664718018733)
+
+
+def test__add_custom_noise() -> None:
+    """
+    Test `fm4ar.datasets.data_transforms.AddCustomNoise`.
+    """
+
+    # Instantiate the transform
+    transform = AddCustomNoise(
         config=dict(
             type="DefaultNoiseGenerator",
             kwargs=dict(
@@ -94,6 +133,17 @@ def test__get_data_transforms() -> None:
                 kwargs=dict(
                     sigma_min=1.0,
                     sigma_max=1.0,
+                    random_seed=42,
+                ),
+            )
+        ),
+        DataTransformConfig(
+            type="AddCustomNoise",
+            kwargs=dict(
+                type="DefaultNoiseGenerator",
+                kwargs=dict(
+                    sigma_min=0.5,
+                    sigma_max=1.5,
                     random_seed=42,
                 ),
             )

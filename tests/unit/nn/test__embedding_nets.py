@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from fm4ar.nn.embedding_nets import (
+    TransformerEncoder,
     PositionalEncoding,
     SoftClipFlux,
     create_embedding_net,
@@ -62,7 +63,7 @@ def test__create_embedding_net() -> None:
 
 
 @pytest.mark.parametrize(
-    "theta_dim, n_freqs, encode_theta",
+    "theta_dim, n_freqs, encode_params",
     [
         (5, 1, True),
         (13, 3, False),
@@ -71,7 +72,7 @@ def test__create_embedding_net() -> None:
 def test__positional_encoding(
     theta_dim: int,
     n_freqs: int,
-    encode_theta: bool,
+    encode_params: bool,
 ) -> None:
     """
     Test `PositionalEncoding`.
@@ -80,7 +81,7 @@ def test__positional_encoding(
     # Create a positional encoding module
     positional_encoding = PositionalEncoding(
         n_freqs=n_freqs,
-        encode_theta=encode_theta,
+        encode_params=encode_params,
     )
 
     # Create a batch with random input
@@ -91,7 +92,7 @@ def test__positional_encoding(
     # Check that the output has the correct shape
     assert encoded.shape == (
         batch_size,
-        1 + theta_dim + 2 * (1 + int(encode_theta) * theta_dim) * n_freqs,
+        1 + theta_dim + 2 * (1 + int(encode_params) * theta_dim) * n_freqs,
     )
 
 
@@ -114,3 +115,43 @@ def test__soft_clip_flux() -> None:
     x_clipped = soft_clip_flux(x)
     assert torch.all(x_clipped["flux"] <= 10.0)
     assert torch.all(x_clipped["flux"] >= -10.0)
+
+
+@pytest.mark.parametrize(
+    "seq_length, patch_size, in_channels, attn_layers_dim, attn_layers_depth, attn_layers_heads",
+    [
+        (1024, 256, 1, 32, 1, 2),
+        (2048, 512, 3, 64, 2, 4),
+    ],
+)  
+def test__transformer_encoder(
+    seq_length: int,
+    patch_size: int,
+    in_channels: int,
+    attn_layers_dim: int,
+    attn_layers_depth: int,
+    attn_layers_heads: int,
+) -> None:
+    """
+    Test `TransformerEncoder`.
+    """
+
+    # Create a TransformerEncoder
+    transformer_encoder = TransformerEncoder(
+        seq_length=seq_length,
+        patch_size=patch_size,
+        in_channels=in_channels,
+        attn_layers_dim=attn_layers_dim,
+        attn_layers_depth=attn_layers_depth,
+        attn_layers_heads=attn_layers_heads,
+        embedding_dropout_rate=0.1,
+        use_flash_attention=False,
+    )
+
+    # Create a batch with random input
+    batch_size = 8
+    t_x = torch.randn(batch_size, in_channels, seq_length)
+    encoded = transformer_encoder(t_x)
+    # Check that the output has the correct shape
+    n_patches = seq_length // patch_size
+    assert encoded.shape == (batch_size, n_patches, 64)

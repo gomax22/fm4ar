@@ -32,7 +32,8 @@ class ResidualBlock(nn.Module):
     def __init__(
         self,
         n_features: int,
-        n_context_features: int | None,
+        n_first_context_features: int | None,
+        n_second_context_features: int | None,
         activation: nn.Module,
         dropout_probability: float = 0.0,
         use_batch_norm: bool = False,
@@ -60,8 +61,10 @@ class ResidualBlock(nn.Module):
             self.layer_norm_1 = nn.LayerNorm(n_features)
             self.layer_norm_2 = nn.LayerNorm(n_features)
 
-        if n_context_features is not None:
-            self.context_layer = nn.Linear(n_context_features, n_features)
+        if n_first_context_features is not None:
+            self.context_layer_1 = nn.Linear(n_first_context_features, n_features)
+        if n_second_context_features is not None:
+            self.context_layer_2 = nn.Linear(n_second_context_features, n_features)
 
         self.linear_layer_1 = nn.Linear(n_features, n_features)
         self.linear_layer_2 = nn.Linear(n_features, n_features)
@@ -69,7 +72,8 @@ class ResidualBlock(nn.Module):
     def forward(
         self,
         inputs: torch.Tensor,
-        context: torch.Tensor | None = None
+        first_context: torch.Tensor | None = None,
+        second_context: torch.Tensor | None = None
     ) -> torch.Tensor:
 
         temps = inputs
@@ -89,9 +93,103 @@ class ResidualBlock(nn.Module):
         temps = self.dropout(temps)
         temps = self.linear_layer_2(temps)
 
-        if context is not None:
+        if first_context is not None:
             temps = torch.nn.functional.glu(
-                torch.cat((temps, self.context_layer(context)), dim=1),
+                torch.cat((temps, self.context_layer_1(first_context)), dim=1),
+                dim=1,
+            )
+            temps = inputs + temps
+        
+        if second_context is not None:
+            temps = torch.nn.functional.glu(
+                torch.cat((temps, self.context_layer_2(second_context)), dim=1),
+                dim=1,
+            )
+            temps = inputs + temps
+
+        return temps
+
+
+
+class ResidualBlock(nn.Module):
+    """
+    A general-purpose residual block.
+    Originally based on `glasflow.nflows.nn.nets.resnets.ResidualBlock`.
+    """
+
+    def __init__(
+        self,
+        n_features: int,
+        n_first_context_features: int | None,
+        n_second_context_features: int | None,
+        activation: nn.Module,
+        dropout_probability: float = 0.0,
+        use_batch_norm: bool = False,
+        use_layer_norm: bool = False,
+    ):
+
+        super().__init__()
+
+        self.activation = activation
+
+        self.dropout = nn.Dropout(p=dropout_probability)
+
+        if use_batch_norm and use_layer_norm:  # pragma: no cover
+            raise ValueError(
+                "Cannot use both batch normalization and layer normalization!"
+            )
+
+        self.use_batch_norm = use_batch_norm
+        if use_batch_norm:
+            self.batch_norm_1 = nn.BatchNorm1d(n_features, eps=1e-3)
+            self.batch_norm_2 = nn.BatchNorm1d(n_features, eps=1e-3)
+
+        self.use_layer_norm = use_layer_norm
+        if use_layer_norm:
+            self.layer_norm_1 = nn.LayerNorm(n_features)
+            self.layer_norm_2 = nn.LayerNorm(n_features)
+
+        if n_first_context_features is not None:
+            self.context_layer_1 = nn.Linear(n_first_context_features, n_features)
+        if n_second_context_features is not None:
+            self.context_layer_2 = nn.Linear(n_second_context_features, n_features)
+
+        self.linear_layer_1 = nn.Linear(n_features, n_features)
+        self.linear_layer_2 = nn.Linear(n_features, n_features)
+
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        first_context: torch.Tensor | None = None,
+        second_context: torch.Tensor | None = None
+    ) -> torch.Tensor:
+
+        temps = inputs
+
+        if self.use_batch_norm:
+            temps = self.batch_norm_1(temps)
+        if self.use_layer_norm:
+            temps = self.layer_norm_1(temps)
+        temps = self.activation(temps)
+        temps = self.linear_layer_1(temps)
+
+        if self.use_batch_norm:
+            temps = self.batch_norm_2(temps)
+        if self.use_layer_norm:
+            temps = self.layer_norm_2(temps)
+        temps = self.activation(temps)
+        temps = self.dropout(temps)
+        temps = self.linear_layer_2(temps)
+
+        if first_context is not None:
+            temps = torch.nn.functional.glu(
+                torch.cat((temps, self.context_layer_1(first_context)), dim=1),
+                dim=1,
+            )
+        
+        if second_context is not None:
+            temps = torch.nn.functional.glu(
+                torch.cat((temps, self.context_layer_2(second_context)), dim=1),
                 dim=1,
             )
 
@@ -119,7 +217,8 @@ class DenseResidualNet(nn.Module):
         dropout: float = 0.0,
         use_batch_norm: bool = False,
         use_layer_norm: bool = False,
-        context_features: int | None = None,
+        first_context_features: int | None = None,
+        second_context_features: int | None = None,
     ) -> None:
         """
         Instantiate a DenseResidualNet module.
@@ -138,7 +237,10 @@ class DenseResidualNet(nn.Module):
                 regularization.
             use_batch_norm: Whether to use batch normalization.
             use_layer_norm: Whether to use layer normalization.
-            context_features: Number of additional context features,
+            first_context_features: Number of additional context features,
+                which are provided to the residual blocks via gated
+                linear units. If None, no additional context expected.
+            second_context_features: Number of second additional context features,
                 which are provided to the residual blocks via gated
                 linear units. If None, no additional context expected.
         """
@@ -177,7 +279,8 @@ class DenseResidualNet(nn.Module):
             [
                 ResidualBlock(
                     n_features=self.hidden_dims[n],
-                    n_context_features=context_features,
+                    n_first_context_features=first_context_features,
+                    n_second_context_features=second_context_features,
                     activation=get_activation_from_name(activation),
                     dropout_probability=dropout,
                     use_batch_norm=use_batch_norm,
@@ -215,7 +318,8 @@ class DenseResidualNet(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        context: torch.Tensor | None = None,
+        first_context: torch.Tensor | None = None,
+        second_context: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Forward pass through the network.
@@ -228,7 +332,11 @@ class DenseResidualNet(nn.Module):
             self.resize_layers,
             strict=True,
         ):
-            x = residual_block(x, context=context)
+            x = residual_block(
+                x, 
+                first_context=first_context, 
+                second_context=second_context
+            )
             x = resize_layer(x)
 
         x = self.final_activation(x)

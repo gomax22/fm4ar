@@ -38,7 +38,7 @@ def test__theta_scalers() -> None:
     scaler = get_theta_scaler({"method": "identity"})
     assert isinstance(scaler, IdentityScaler)
 
-    # Test the MeanStdScaler
+    # Test the MeanStdScaler for the `vasist_2023` dataset
     scaler = get_theta_scaler(
         {"method": "mean_std", "kwargs": {"dataset": "vasist_2023"}}
     )
@@ -48,7 +48,7 @@ def test__theta_scalers() -> None:
     for key in sample:
         assert np.allclose(scaler.inverse(transformed)[key], sample[key])
 
-    # Test the MinMaxScaler
+    # Test the MinMaxScaler for the `vasist_2023` dataset
     scaler = get_theta_scaler(
         {"method": "min_max", "kwargs": {"dataset": "vasist_2023"}}
     )
@@ -60,6 +60,30 @@ def test__theta_scalers() -> None:
     for key in sample:
         assert np.allclose(scaler.inverse(transformed)[key], sample[key])
 
+
+
+    # Test the MeanStdScaler for the `inaf` dataset
+    scaler = get_theta_scaler(
+        {"method": "mean_std", "kwargs": {"dataset": "inaf"}}
+    )
+    assert isinstance(scaler, MeanStdScaler)
+    transformed = scaler.forward(sample)
+    assert transformed["theta"].shape == (6,)
+    for key in sample:
+        assert np.allclose(scaler.inverse(transformed)[key], sample[key])
+
+    # Test the MinMaxScaler for the `vasist_2023` dataset
+    scaler = get_theta_scaler(
+        {"method": "min_max", "kwargs": {"dataset": "inaf"}}
+    )
+    assert isinstance(scaler, MinMaxScaler)
+    transformed = scaler.forward(sample)
+    assert transformed["theta"].shape == (6,)
+    assert np.min(transformed["theta"]) >= 0.0
+    assert np.max(transformed["theta"]) <= 1.0
+    for key in sample:
+        assert np.allclose(scaler.inverse(transformed)[key], sample[key])
+        
     # Test invalid method
     with pytest.raises(ValueError) as value_error:
         get_theta_scaler({"method": "invalid"})

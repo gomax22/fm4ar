@@ -115,3 +115,36 @@ def set_random_seed(seed: int, verbose: bool = True) -> None:
 
     if verbose:
         print(f"Set PyTorch random seed to {seed}!", flush=True)
+
+
+def move_batch_to_device(
+    batch: dict[str, torch.Tensor],
+    device: torch.device,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """
+    Move a batch of data to the given device.
+
+    This function also separates `theta` from the `context` (to make
+    sure no model every accidentally receives `theta` as an input).
+
+    Args:
+        batch: A dictionary containing the batch data.
+        device: The device to which to move the data.
+
+    Returns:
+        A 2-tuple, `(theta, context)`, where `theta` is are the target
+        parameters and `context` is the context dict.
+    """
+
+    # Move everthing to the device first
+    batch = {
+        key: value.to(device, non_blocking=True)
+        for key, value in batch.items()
+    }
+
+    # Separate theta from context
+    theta = batch.pop("theta")
+    aux_data = batch.pop("aux_data", None)
+    context = batch
+
+    return theta, context, aux_data
