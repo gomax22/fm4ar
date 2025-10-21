@@ -33,38 +33,12 @@ model:
         bound: 100.0
     - block_type: "Concatenate"
       kwargs:
-        keys: [ "flux", "error_bars" ]
+        keys: ["flux", "error_bars"]
     - block_type: "DenseResidualNet"
       kwargs:
-        hidden_dims:
-          # - 4096
-          # - 4096
-          # - 4096
-          # - 2048
-          # - 2048
-          # - 2048
-          # - 1024
-          # - 1024
-          # - 1024
-          # - 512
-          # - 512
-          # - 512
-          # - 256
-          # - 256
-          # - 1024
-          # - 1024
-          - 512
-          - 512
-          - 256
-          - 256
-          - 128
-          - 128
-          - 64
-          - 64
-          - 32
-          - 32
+        hidden_dims: [512, 512]
         activation: "GELU"
-        output_dim: 32
+        output_dim: 512
         dropout: 0.1
         use_layer_norm: true
 

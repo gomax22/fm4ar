@@ -80,7 +80,7 @@ model:
         hidden_dims: [512, 512]
         activation: "GELU"
         output_dim: 512
-        dropout: 0.0
+        dropout: 0.1
 
   # Vector field network
   vectorfield_net:
