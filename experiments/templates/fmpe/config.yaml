@@ -101,7 +101,7 @@ training:
     optimizer:
       type: "AdamW"
       kwargs:
-        lr: 5.0e-4
+        lr: 5.0e-5
     scheduler:
       type: "ReduceLROnPlateau"
       kwargs:
