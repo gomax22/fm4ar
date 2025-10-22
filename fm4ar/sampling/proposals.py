@@ -160,8 +160,10 @@ def draw_samples_from_ml_model(
 
     # Draw samples from the model posterior ("proposal distribution")
     print("Drawing samples from the model posterior:", flush=True)
-    samples_chunks = []
-    log_prob_chunks = []
+
+    # Lists to store all samples and log-probs
+    samples = []
+    log_prob_samples = []
 
     # -------------------------------------------------------------------------
     # Compute test loss
@@ -218,6 +220,11 @@ def draw_samples_from_ml_model(
                 **model_kwargs,
             ).detach().cpu().numpy().flatten()
 
+
+            # Initialize lists to store the samples and log-probs for this batch
+            samples_chunks = []
+            log_prob_chunks = []
+
             for n in chunk_sizes:
 
                 # Adjust the size of both the context and auxiliary data so that the batch size matches
@@ -246,13 +253,17 @@ def draw_samples_from_ml_model(
                 log_prob_chunks.append(chunk[1].detach().cpu().numpy())
                 del chunk
 
+            # Combine all chunks for this batch and store them in the main lists
+            samples.append(np.concatenate(samples_chunks, axis=0))
+            log_prob_samples.append(np.concatenate(log_prob_chunks, axis=0))
+
     print(flush=True)
     print("Done!\n")
 
 
     # Combine all chunks into a single numpy array
     samples = np.concatenate(samples_chunks, axis=0)
-    log_prob_samples = np.concatenate(log_prob_chunks, axis=0).flatten()
+    log_prob_samples = np.concatenate(log_prob_chunks, axis=0)
 
     # Select the average validation loss
     avg_loss = loss_info.get_avg()
