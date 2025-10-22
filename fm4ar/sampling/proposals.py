@@ -262,8 +262,8 @@ def draw_samples_from_ml_model(
 
 
     # Combine all chunks into a single numpy array
-    samples = np.concatenate(samples, axis=0)
-    log_prob_samples = np.concatenate(log_prob_samples, axis=0)
+    samples = np.stack(samples, axis=0)
+    log_prob_samples = np.stack(log_prob_samples, axis=0)
 
     # Select the average validation loss
     avg_loss = loss_info.get_avg()
