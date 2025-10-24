@@ -1,0 +1,28 @@
+evaluate_regression_metrics:
+  figsize: [8, 8]
+  fontsize: 14
+  y_scale: log
+
+
+evaluate_calibration_metrics:
+  bins: 20
+  start_quantiles: 0.05
+  end_quantiles: 0.95
+  num_quantiles: 19
+
+evaluate_coverage_metrics:
+  confidence_levels: [0.68, 0.95, 0.99]
+  support: true
+  statistics: ['posterior_mean', 'posterior_std', 'posterior_accuracy']
+
+draw_corner_plots:
+  max_plots: 10
+  label_kwargs: 
+    fontsize: 12
+    fontname: Times New Roman
+  title_kwargs:
+    fontsize: 10
+    fontname: Times New Roman
+  legend_kwargs:
+    fontsize: 20
+  offset: 0.2
