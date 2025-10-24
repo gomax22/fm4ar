@@ -10,9 +10,18 @@ from fm4ar.datasets.auxiliary_data_scalers import get_auxiliary_data_scaler
 from fm4ar.utils.paths import expand_env_variables_in_path
 
 
-def load_dataset(config: dict) -> tuple[Dataset, Dataset, Dataset]:
+def load_dataset(config: dict) -> tuple[
+    Dataset, 
+    Dataset, 
+    Dataset
+]:
     """
     Load a dataset from the given experiment configuration.
+
+    Args:
+        config (dict): The experiment configuration.
+    Returns:
+        tuple[Dataset, Dataset, Dataset]: The training, validation, and test datasets.
     """
     
     # Extract and very the dataset configuration
