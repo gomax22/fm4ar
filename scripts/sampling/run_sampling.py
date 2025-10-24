@@ -168,14 +168,14 @@ if __name__ == "__main__":
                 file_path=output_file_path,
                 samples=results["samples"],
                 log_prob_samples=results["log_prob_samples"],
-                log_prob_theta_true=results["log_probs_true_thetas"],
+                log_probs_true_thetas=results["log_probs_true_thetas"],
             )
             print("\nSaving results to NPY...", end=" ", flush=True)
             save_to_npy(
                 output_dir=args.experiment_dir,
                 samples=results["samples"],
                 log_prob_samples=results["log_prob_samples"],
-                log_prob_theta_true=results["log_probs_true_thetas"],
+                log_probs_true_thetas=results["log_probs_true_thetas"],
             )
             print("Done!\n\n")
 
