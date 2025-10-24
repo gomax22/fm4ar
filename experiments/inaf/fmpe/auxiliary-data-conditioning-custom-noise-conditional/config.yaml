@@ -154,4 +154,8 @@ local:
   # Device ("cpu" or "cuda"; or "auto")
   device: "cuda"
 
-  
+  # Settings for Weights & Biases, remove if not used
+  wandb:
+    project: "fm4ar"
+    group: "inaf"
+    name: "fmpe__auxiliary-data-conditioning-custom-noise-conditional"

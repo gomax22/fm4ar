@@ -107,3 +107,8 @@ local:
   device: "cuda"
 
   
+  # Settings for Weights & Biases, remove if not used
+  wandb:
+    project: "fm4ar"
+    group: "inaf"
+    name: "npe__noise-conditional"
