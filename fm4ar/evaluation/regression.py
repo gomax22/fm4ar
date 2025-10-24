@@ -136,25 +136,25 @@ def compute_regression_metrics_from_errors(
     dist_metrics = {
         'per_target': {
             'mse': {
-                'mean': torch.mean(sqrd_errors, dim=[0, 1]).numpy(),
-                'std': torch.std(sqrd_errors, dim=[0, 1]).numpy(),
-                'min': torch.min(sqrd_errors.min(dim=1).values, dim=0).values.numpy(),
-                'max': torch.max(sqrd_errors.max(dim=1).values, dim=0).values.numpy(),
-                'median': torch.median(sqrd_errors.median(dim=1).values, dim=0).values.numpy()
+                'mean': torch.mean(torch.mean(sqrd_errors, dim=1), dim=0).numpy(),
+                'std': torch.std(torch.mean(sqrd_errors, dim=1), dim=0).numpy(),
+                'min': torch.min(torch.mean(sqrd_errors, dim=1), dim=0).values.numpy(),
+                'max': torch.max(torch.mean(sqrd_errors, dim=1), dim=0).values.numpy(),
+                'median': torch.median(torch.mean(sqrd_errors, dim=1), dim=0).values.numpy()
             },
             'mae': {
-                'mean' : torch.mean(abs_errors, dim=[0, 1]).numpy(),
-                'std': torch.std(abs_errors, dim=[0, 1]).numpy(),
-                'min': torch.min(abs_errors.min(dim=1).values, dim=0).values.numpy(),
-                'max': torch.max(abs_errors.max(dim=1).values, dim=0).values.numpy(),
-                'median': torch.median(abs_errors.median(dim=1).values, dim=0).values.numpy()
+                'mean' : torch.mean(torch.mean(abs_errors, dim=1), dim=0).numpy(),
+                'std': torch.std(torch.mean(abs_errors, dim=1), dim=0).numpy(),
+                'min': torch.min(torch.mean(abs_errors, dim=1), dim=0).values.numpy(),
+                'max': torch.max(torch.mean(abs_errors, dim=1), dim=0).values.numpy(),
+                'median': torch.median(torch.mean(abs_errors, dim=1), dim=0).values.numpy()
             },
             'rmse': {
-                'mean': torch.mean(sqrd_errors, dim=[0, 1]).sqrt().numpy(),
-                'std': torch.std(sqrd_errors, dim=[0, 1]).sqrt().numpy(),
-                'min': torch.min(sqrd_errors.min(dim=1).values, dim=0).values.sqrt().numpy(),
-                'max': torch.max(sqrd_errors.max(dim=1).values, dim=0).values.sqrt().numpy(),
-                'median': torch.median(sqrd_errors.median(dim=1).values, dim=0).values.sqrt().numpy()
+                'mean': torch.mean(torch.mean(sqrd_errors, dim=1).sqrt(), dim=0).numpy(),
+                'std': torch.std(torch.mean(sqrd_errors, dim=1).sqrt(), dim=0).numpy(),
+                'min': torch.min(torch.mean(sqrd_errors, dim=1).sqrt(), dim=0).values.numpy(),
+                'max': torch.max(torch.mean(sqrd_errors, dim=1).sqrt(), dim=0).values.numpy(),
+                'median': torch.median(torch.mean(sqrd_errors, dim=1).sqrt(), dim=0).values.numpy()
             },
             'median_ae': {
                 'mean': torch.mean(abs_errors.median(dim=1).values, dim=0).numpy(),
@@ -166,25 +166,25 @@ def compute_regression_metrics_from_errors(
         },
         'per_sample': {
             'mse': {
-                'mean': torch.mean(sqrd_errors, dim=[1, 2]).numpy(),
-                'std': torch.std(sqrd_errors, dim=[1, 2]).numpy(),
-                'min': torch.min(sqrd_errors.min(dim=1).values, dim=1).values.numpy(),
-                'max': torch.max(sqrd_errors.max(dim=1).values, dim=1).values.numpy(),
-                'median': torch.median(sqrd_errors.median(dim=1).values, dim=1).values.numpy()
+                'mean': torch.mean(torch.mean(sqrd_errors, dim=1), dim=1).numpy(),
+                'std': torch.std(torch.mean(sqrd_errors, dim=1), dim=1).numpy(),
+                'min': torch.min(torch.mean(sqrd_errors, dim=1), dim=1).values.numpy(),
+                'max': torch.max(torch.mean(sqrd_errors, dim=1), dim=1).values.numpy(),
+                'median': torch.median(torch.mean(sqrd_errors, dim=1), dim=1).values.numpy()
             },
             'mae': {
-                'mean': torch.mean(abs_errors, dim=[1, 2]).numpy(),
-                'std': torch.std(abs_errors, dim=[1, 2]).numpy(),
-                'min': torch.min(abs_errors.min(dim=1).values, dim=1).values.numpy(),
-                'max': torch.max(abs_errors.max(dim=1).values, dim=1).values.numpy(),
-                'median': torch.median(abs_errors.median(dim=1).values, dim=1).values.numpy()
+                'mean' : torch.mean(torch.mean(abs_errors, dim=1), dim=1).numpy(),
+                'std': torch.std(torch.mean(abs_errors, dim=1), dim=1).numpy(),
+                'min': torch.min(torch.mean(abs_errors, dim=1), dim=1).values.numpy(),
+                'max': torch.max(torch.mean(abs_errors, dim=1), dim=1).values.numpy(),
+                'median': torch.median(torch.mean(abs_errors, dim=1), dim=1).values.numpy()
             },
             'rmse': {
-                'mean': torch.mean(sqrd_errors, dim=[1, 2]).sqrt().numpy(),
-                'std': torch.std(sqrd_errors, dim=[1, 2]).sqrt().numpy(),
-                'min': torch.min(sqrd_errors.min(dim=1).values, dim=1).values.sqrt().numpy(),
-                'max': torch.max(sqrd_errors.max(dim=1).values, dim=1).values.sqrt().numpy(),
-                'median': torch.median(sqrd_errors.median(dim=1).values, dim=1).values.sqrt().numpy()
+                'mean': torch.mean(torch.mean(sqrd_errors, dim=1).sqrt(), dim=1).numpy(),
+                'std': torch.std(torch.mean(sqrd_errors, dim=1).sqrt(), dim=1).numpy(),
+                'min': torch.min(torch.mean(sqrd_errors, dim=1).sqrt(), dim=1).values.numpy(),
+                'max': torch.max(torch.mean(sqrd_errors, dim=1).sqrt(), dim=1).values.numpy(),
+                'median': torch.median(torch.mean(sqrd_errors, dim=1).sqrt(), dim=1).values.numpy()
             },
             'median_ae': {
                 'mean': torch.mean(abs_errors.median(dim=1).values, dim=1).numpy(),
@@ -326,6 +326,65 @@ def save_metrics_to_csv(
 
         df = pd.DataFrame(data, columns=columns)
         df.to_csv(output_dir / f'regression_{metric_name}_{posterior_samples_type}.csv', index=False)
+
+
+def save_regression_errors_to_csv(
+    sqrd_errors: torch.Tensor,
+    abs_errors: torch.Tensor,
+    dap_sqrd_errors: torch.Tensor | None,
+    dap_abs_errors: torch.Tensor | None,
+    output_dir: Path,
+    labels: List[str],
+) -> None:
+
+    """
+    Utility to save regression errors as csv files.
+    Args:
+        sqrd_errors: Squared errors tensor of shape (n_samples, n_repeats, n_targets).
+        abs_errors: Absolute errors tensor of shape (n_samples, n_repeats, n_targets).
+        dap_sqrd_errors: Squared errors for DAP samples of shape (n_samples, n_targets).
+        dap_abs_errors: Absolute errors for DAP samples of shape (n_samples, n_targets).
+        output_dir: Directory to save the csv files.
+        labels: List of target labels.
+    Returns:
+        None
+    """
+    
+    metrics = {
+        'mse': torch.mean(sqrd_errors, dim=1).numpy(),
+        'mae': torch.mean(abs_errors, dim=1).numpy(),
+        'rmse': torch.mean(sqrd_errors, dim=1).sqrt().numpy(),
+        'median_ae': torch.median(abs_errors, dim=1).values.numpy(),
+    }
+
+    for metric_name, metric_values in metrics.items():
+        
+        df = pd.DataFrame(metric_values, columns=labels)
+        df.to_csv(output_dir / f'regression_{metric_name}_errors_all_samples.csv', index=False)
+
+    if dap_abs_errors is not None and dap_sqrd_errors is not None:
+        dap_metrics = {
+            'mse': torch.mean(dap_sqrd_errors, dim=0, keepdim=True).numpy(),
+            'mae': torch.mean(dap_abs_errors, dim=0, keepdim=True).numpy(),
+            'rmse': torch.mean(dap_sqrd_errors, dim=0, keepdim=True).sqrt().numpy(),
+            'median_ae': torch.median(dap_abs_errors, dim=0, keepdim=True).values.numpy(),
+        }
+
+        indices = list(dap_metrics.keys())
+        data = np.concatenate([
+                np.array(indices).reshape(-1, 1),
+                np.concatenate(
+                    [dap_metrics[metric_name] for metric_name in indices],
+                    axis=0
+                )
+            ],
+            axis=1
+        )
+        
+        df = pd.DataFrame(data, columns=["metrics"] + labels)
+        df.to_csv(output_dir / f'regression_errors_dap.csv', index=False)
+
+    return None
 
 
 def save_regression_metrics_to_csv(

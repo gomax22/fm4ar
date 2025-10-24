@@ -164,6 +164,7 @@ def draw_samples_from_ml_model(
     # Lists to store all samples and log-probs
     samples = []
     log_prob_samples = []
+    log_probs_true_thetas = []
 
     # -------------------------------------------------------------------------
     # Compute test loss
@@ -219,6 +220,7 @@ def draw_samples_from_ml_model(
                 ),
                 **model_kwargs,
             ).detach().cpu().numpy().flatten()
+            log_probs_true_thetas.append(log_prob_theta_true)
 
 
             # Initialize lists to store the samples and log-probs for this batch
@@ -264,6 +266,7 @@ def draw_samples_from_ml_model(
     # Combine all chunks into a single numpy array
     samples = np.stack(samples, axis=0)
     log_prob_samples = np.stack(log_prob_samples, axis=0)
+    log_probs_true_thetas = np.concatenate(log_probs_true_thetas, axis=0).reshape(-1, 1)
 
     # Select the average validation loss
     avg_loss = loss_info.get_avg()
@@ -271,7 +274,7 @@ def draw_samples_from_ml_model(
     return {
         "samples": samples,
         "log_prob_samples": log_prob_samples,
-        "log_prob_theta_true": log_prob_theta_true,
+        "log_probs_true_thetas": log_probs_true_thetas,
         "avg_loss": avg_loss,
     }
 

@@ -14,6 +14,7 @@ from fm4ar.evaluation.config import (
     CalibrationConfig, 
     RegressionConfig, 
     CoverageConfig,
+    LogProbsConfig,
     DrawCornerPlotsConfig
 )
 from fm4ar.evaluation.sbc import run_simulation_based_calibration
@@ -32,8 +33,10 @@ from fm4ar.evaluation.regression import (
     calculate_errors,
     compute_regression_metrics_from_errors,
     save_regression_metrics_to_csv,
+    save_regression_errors_to_csv,
     make_violin_plots_of_errors,
 )
+from fm4ar.evaluation.log_probs import save_log_probs_to_csv
 from fm4ar.evaluation.args import get_cli_arguments
 from fm4ar.evaluation.config import load_config
 from fm4ar.utils.config import load_config as load_experiment_config
@@ -108,6 +111,14 @@ def run_regression_metrics(
         figsize=config.figsize,
         fontsize=config.fontsize,
         y_scale=config.y_scale,
+        labels=test_dataset.get_parameters_labels(),
+    )
+    print("Done!", flush=True)
+
+    print("Saving regression errors to CSV...", end=' ', flush=True)
+    save_regression_errors_to_csv(
+        **errors,
+        output_dir=output_dir,
         labels=test_dataset.get_parameters_labels(),
     )
     print("Done!", flush=True)
@@ -306,6 +317,49 @@ def run_coverage_analysis(
     return results
 
 
+def run_log_probs_analysis(
+    args: argparse.Namespace,
+    config: LogProbsConfig,
+    output_dir: Path
+) -> dict:
+    
+    # Ensure output directory exists
+    if not output_dir.exists():
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load posterior samples
+    print("Loading posterior log-probabilities...", end=' ', flush=True)
+    posterior_log_probs = np.load(
+        args.experiment_dir / 'posterior_log_probs.npy'
+    )
+    print("Done!", flush=True)
+
+    # Load top log probs
+    print("Loading top posterior log-probabilities...", end=' ', flush=True)
+    top_log_probs = np.load(
+        args.experiment_dir / 'posterior_top_log_probs.npy'
+    )
+    print("Done!", flush=True)
+
+    # Load true theta log probs    
+    print("Loading posterior log-probabilities of true thetas...", end=' ', flush=True)
+    posterior_log_probs_true_theta = np.load(
+        args.experiment_dir / 'posterior_log_probs_true_theta.npy'
+    )
+    print("Done!", flush=True)
+
+    print("Saving log-probabilities to CSV...", end=' ', flush=True)
+    df = save_log_probs_to_csv(
+        log_probs=posterior_log_probs,
+        top_log_probs=top_log_probs,
+        log_probs_true_theta=posterior_log_probs_true_theta,
+        output_dir=output_dir,
+    )
+    print("Done!", flush=True)
+
+    return df
+
+
 def draw_corner_plots(
     args: argparse.Namespace,
     config: DrawCornerPlotsConfig,
@@ -399,6 +453,7 @@ if __name__ == "__main__":
     
     # Load the importance sampling config
     config = load_config(experiment_dir=args.experiment_dir)
+
 
     # -------------------------------------------------------------------------
     # Stage 1: Evaluate regression errors on test set
@@ -497,10 +552,32 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------
     # Stage 4: Draw corner plots on test set
     # -------------------------------------------------------------------------
+    if args.stage == "evaluate_log_probabilities" or args.stage is None:
+
+        print(80 * "-", flush=True)
+        print("(4) Evaluate log probabilities on test set", flush=True)
+        print(80 * "-" + "\n", flush=True)
+
+        log_probs_output_dir = Path(
+            args.experiment_dir / "evaluation" / "log_probs"
+        )
+
+        # Within this function, we compute:
+        results = run_log_probs_analysis(
+            args=args, 
+            config=config.evaluate_log_probs,
+            output_dir=log_probs_output_dir
+        )
+
+        print("Done!\n\n")
+
+    # -------------------------------------------------------------------------
+    # Stage 5: Draw corner plots on test set
+    # -------------------------------------------------------------------------
     if args.stage == "draw_corner_plots" or args.stage is None:
 
         print(80 * "-", flush=True)
-        print("(4) Draw corner plots on test set", flush=True)
+        print("(5) Draw corner plots on test set", flush=True)
         print(80 * "-" + "\n", flush=True)
 
         corner_output_dir = Path(
@@ -516,6 +593,8 @@ if __name__ == "__main__":
         )
     
         print("Done!\n\n")
+
+    
 
 
     # -------------------------------------------------------------------------

@@ -74,6 +74,12 @@ class CoverageConfig(BaseModel):
     )
 
 
+class LogProbsConfig(BaseModel):
+    """
+    Configuration for the "log_probs" stage.
+    """
+    pass
+
 class DrawCornerPlotsConfig(BaseModel):
     """
     Configuration for the "draw_corner_plots" stage.
@@ -121,7 +127,8 @@ class EvaluationConfig(BaseModel):
     # Configuration for the individual stages
     evaluate_calibration_metrics: CalibrationConfig
     evaluate_regression_metrics: RegressionConfig
-    evaluate_coverage_metrics: CoverageConfig    
+    evaluate_coverage_metrics: CoverageConfig
+    evaluate_log_probs: LogProbsConfig
     draw_corner_plots: DrawCornerPlotsConfig
 
 def load_config(
