@@ -1,5 +1,5 @@
 """
-Argument parser for training scripts.
+Argument parser for sampling script.
 """
 
 import argparse  # pragma: no cover
