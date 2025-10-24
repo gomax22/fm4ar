@@ -45,7 +45,7 @@ def make_violin_plot(
         # for partname in ['cbars', 'cmins', 'cmaxes', 'cmeans', 'cmedians']:
         #     plots[partname].set_colors(colors)
         
-        axs[target_idx].set_ylabel(labels, fontsize=fontsize)
+        axs[target_idx].set_ylabel(labels[target_idx], fontsize=fontsize)
         axs[target_idx].set_xticks(range(1, len(list(metrics.keys())) + 1))
         axs[target_idx].set_xticklabels(list(metrics.keys()), fontsize=fontsize)
         axs[target_idx].set_yscale(y_scale)
