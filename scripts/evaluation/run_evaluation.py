@@ -21,7 +21,8 @@ from fm4ar.evaluation.sbc import run_simulation_based_calibration
 from fm4ar.evaluation.tarp import run_tarp_evaluation
 from fm4ar.evaluation.calibration import (
     compute_calibration_metrics, 
-    plot_calibration_diagrams
+    plot_calibration_diagrams,
+    save_calibration_metrics_to_csv
 )
 from fm4ar.evaluation.corners import (
     corner_plot_prior_posterior,
@@ -234,6 +235,16 @@ def run_calibration_metrics(
         )
     )
     print("Done!", flush=True)
+
+
+    print("Saving calibration metrics to CSV...", end=' ', flush=True)
+    save_calibration_metrics_to_csv(
+        metrics=results,
+        output_dir=output_dir,
+        labels=test_dataset.get_parameters_labels(),
+    )
+    print("Done!", flush=True)
+
     results["sbc"] = sbc_stats
     results["tarp"] = tarp_results
 
@@ -343,8 +354,8 @@ def run_log_probs_analysis(
 
     # Load true theta log probs    
     print("Loading posterior log-probabilities of true thetas...", end=' ', flush=True)
-    posterior_log_probs_true_theta = np.load(
-        args.experiment_dir / 'posterior_log_probs_true_theta.npy'
+    posterior_log_probs_true_thetas = np.load(
+        args.experiment_dir / 'posterior_log_probs_true_thetas.npy'
     )
     print("Done!", flush=True)
 
@@ -352,7 +363,7 @@ def run_log_probs_analysis(
     df = save_log_probs_to_csv(
         log_probs=posterior_log_probs,
         top_log_probs=top_log_probs,
-        log_probs_true_theta=posterior_log_probs_true_theta,
+        log_probs_true_thetas=posterior_log_probs_true_thetas,
         output_dir=output_dir,
     )
     print("Done!", flush=True)
@@ -552,14 +563,14 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------
     # Stage 4: Draw corner plots on test set
     # -------------------------------------------------------------------------
-    if args.stage == "evaluate_log_probabilities" or args.stage is None:
+    if args.stage == "evaluate_log_probs" or args.stage is None:
 
         print(80 * "-", flush=True)
         print("(4) Evaluate log probabilities on test set", flush=True)
         print(80 * "-" + "\n", flush=True)
 
         log_probs_output_dir = Path(
-            args.experiment_dir / "evaluation" / "log_probs"
+            args.experiment_dir / "evaluation" / "log-probs"
         )
 
         # Within this function, we compute:

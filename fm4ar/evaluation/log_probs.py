@@ -5,7 +5,7 @@ from pathlib import Path
 def save_log_probs_to_csv(
     log_probs: np.ndarray,
     top_log_probs: np.ndarray,
-    log_probs_true_theta: np.ndarray,
+    log_probs_true_thetas: np.ndarray,
     output_dir: Path,
 ) -> pd.DataFrame:
     
@@ -27,13 +27,67 @@ def save_log_probs_to_csv(
     # Create a DataFrame to hold the log probabilities
     df = pd.DataFrame(
         np.concatenate(
-            log_probs_true_theta, top_log_probs, log_probs,
+            [log_probs_true_thetas, top_log_probs, log_probs],
             axis=1,
         ),
-        columns=["log_prob_true_theta", "top_log_prob"] + [f"log_prob_sample_{i+1}" for i in range(log_probs.shape[1])],
+        columns=["log_prob_true_thetas", "top_log_prob"] + [f"log_prob_sample_{i+1}" for i in range(log_probs.shape[1])],
 
     )
-    df.to_csv(output_dir / "log_probs_summary.csv", index=False)
+    
+    # Downcast numeric columns to save space
+    df = df.apply(pd.to_numeric, downcast='integer')
+    df = df.apply(pd.to_numeric, downcast='float')
+
+    # Make sure the downcasting worked
+    for col in df.select_dtypes(include=['float']).columns:
+        df[col] = df[col].astype(np.float16)
+    
+    # Save the DataFrame to a CSV file
+    df.to_csv(
+        output_dir / "log_probs_long_summary.csv", 
+        index=False,
+    )
+
+    # Create a DataFrame to hold the log probabilities
+    df = pd.DataFrame(
+        np.concatenate(
+            [
+                log_probs_true_thetas, 
+                top_log_probs, 
+                log_probs.mean(axis=1, keepdims=True),
+                log_probs.std(axis=1, keepdims=True),
+                log_probs.min(axis=1, keepdims=True),
+                log_probs.max(axis=1, keepdims=True),
+                np.median(log_probs, axis=1, keepdims=True),],
+            axis=1,
+        ),
+        columns=[
+            "log_prob_true_thetas", 
+            "top_log_prob", 
+            "mean_log_prob_samples",
+            "std_log_prob_samples",
+            "min_log_prob_samples",
+            "max_log_prob_samples",
+            "median_log_prob_samples",
+        ],
+    )
+    
+    # Downcast numeric columns to save space
+    df = df.apply(pd.to_numeric, downcast='integer')
+    df = df.apply(pd.to_numeric, downcast='float')
+
+    # Make sure the downcasting worked
+    for col in df.select_dtypes(include=['float']).columns:
+        df[col] = df[col].astype(np.float16)
+    
+    # Save the DataFrame to a CSV file
+    df.to_csv(
+        output_dir / "log_probs_short_summary.csv", 
+        index=False,
+    )
+
+
+
 
 
     return df

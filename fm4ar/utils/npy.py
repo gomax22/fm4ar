@@ -31,7 +31,7 @@ def save_to_npy(
     best = torch.argmax(log_probs, dim=1)
     num_test_samples = posterior_samples.shape[0]
     top_samples = posterior_samples[torch.arange(num_test_samples), best].numpy()
-    top_log_probs = log_probs[torch.arange(num_test_samples), best].numpy()
+    top_log_probs = log_probs[torch.arange(num_test_samples), best].numpy().reshape(-1, 1)
 
     # Save the indices and the samples
     np.save(output_dir / "posterior_top_log_probs.npy", top_log_probs)

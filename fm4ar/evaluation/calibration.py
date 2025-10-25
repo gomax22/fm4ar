@@ -1,7 +1,8 @@
 import os
-import torch
+import pandas as pd
 import numpy as np
 from pathlib import Path
+from typing import List
 
 from netcal.metrics.regression import NLL, PinballLoss, PICP, QCE
 from netcal.presentation import ReliabilityRegression, ReliabilityQCE
@@ -358,6 +359,50 @@ def compute_calibration_metrics(
 
     return calibration_metrics
 
+
+def save_calibration_metrics_to_csv(
+    metrics: dict,
+    output_dir: Path,
+    labels: List[str],
+) -> None:
+    """
+    Save calibration metrics to a CSV file.
+    Args:
+        calibration_metrics: A dictionary containing the computed calibration metrics.
+        output_dir: Directory where the CSV file will be saved.
+    """
+
+    # Ensure the output directory exists
+    if not output_dir.exists():
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize result DataFrame
+    df = pd.DataFrame({"parameters": labels})
+
+    # Recursive flattening
+    for metric, metric_dict in metrics.items():
+        for scope, scope_dict in metric_dict.items():
+            # Case 1: has sub-dict (independent, joint, picp, mpiw)
+            if isinstance(scope_dict, dict) and "mean" in scope_dict:
+                # Scalar values → broadcast to all parameters
+                if np.isscalar(scope_dict["mean"]):
+                    mean_vals = [scope_dict["mean"]] * len(labels)
+                    std_vals = [scope_dict["std"]] * len(labels)
+                else:
+                    mean_vals = scope_dict["mean"]
+                    std_vals = scope_dict["std"]
+
+                df[f"{metric}_{scope}_mean"] = mean_vals
+                df[f"{metric}_{scope}_std"] = std_vals
+            
+            # Case 2: metrics like Pinball that skip "independent"/"joint" level
+            elif scope in ["mean", "std"]:
+                vals = metric_dict[scope]
+                df[f"{metric}_{scope}"] = vals
+
+    # Save to CSV
+    df.to_csv(output_dir / "calibration_metrics_summary.csv", index=False)
+    return None
 
 def plot_calibration_diagrams(
     posterior_samples: np.ndarray,

@@ -11,7 +11,7 @@ from yaml import safe_load
 
 class CalibrationConfig(BaseModel):
     """
-    Configuration for the "calibration" stage.
+    Configuration for the "evaluate_calibration_metrics" stage.
     """
     bins: int = Field(
         default=20,
@@ -35,7 +35,7 @@ class CalibrationConfig(BaseModel):
 
 class RegressionConfig(BaseModel):
     """
-    Configuration for the "regression" stage.
+    Configuration for the "evaluate_regression_metrics" stage.
     """
 
     figsize: tuple[int, int] = Field(
@@ -57,7 +57,7 @@ class RegressionConfig(BaseModel):
 
 class CoverageConfig(BaseModel):
     """
-    Configuration for the "coverage" stage.
+    Configuration for the "evaluate_coverage_metrics" stage.
     """
     confidence_levels: List[float] = Field(
         default=[0.68, 0.95, 0.99],
@@ -76,9 +76,12 @@ class CoverageConfig(BaseModel):
 
 class LogProbsConfig(BaseModel):
     """
-    Configuration for the "log_probs" stage.
+    Configuration for the "evaluate_log_probs" stage.
     """
-    pass
+    key: str = Field(
+        ...,
+        description="Key for accessing log probabilities in the data.",
+    )
 
 class DrawCornerPlotsConfig(BaseModel):
     """
