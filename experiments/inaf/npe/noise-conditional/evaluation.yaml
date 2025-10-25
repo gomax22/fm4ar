@@ -15,6 +15,9 @@ evaluate_coverage_metrics:
   support: true
   statistics: ['posterior_mean', 'posterior_std', 'posterior_accuracy']
 
+evaluate_log_probs:
+  key: placeholder
+
 draw_corner_plots:
   max_plots: 10
   label_kwargs: 
