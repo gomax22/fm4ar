@@ -24,7 +24,7 @@ class SupportsDictInput(ABC):
     # This is needed to create the dummy input that is used to determine the
     # output of the block. This is a class attribute because we might want to
     # access it without instantiating the class.
-    required_keys: list[str] = ["theta", "flux", "wlen"]
+    required_keys: list[str] = ["theta", "flux", "wlen", "aux_data"]
 
     @abstractmethod
     def forward(self, x: Mapping[str, torch.Tensor]) -> Any:
@@ -58,6 +58,12 @@ def block_type_string_to_class(block_type: str) -> type:
             return SoftClipFlux
         case "Unsqueeze":
             return Unsqueeze  
+        case "Flatten":
+            return Flatten
+        case "WavelengthPositionalEncoding":
+            return WavelengthPositionalEncoding
+        case "Normalize":
+            return Normalize
         case _:  # pragma: no cover
             raise ValueError(f"Invalid block type: {block_type}!")
 
@@ -102,7 +108,9 @@ def determine_output_shape(
     # Determine the output shape (and drop the batch dimension)
     dummy_output = block(dummy_input)
     if isinstance(dummy_output, dict):
-        output_shape = tuple(dummy_output["flux"].shape[1:])
+        key = "flux" if "flux" in dummy_output else "aux_data"
+        output_shape = tuple(dummy_output[key].shape[1:])
+
     else:
         output_shape = tuple(dummy_output.shape[1:])
 
@@ -281,20 +289,59 @@ class Unsqueeze(SupportsDictInput, nn.Module):
         self.dim = dim
         self.required_keys = keys
 
-    def forward(self, context: Mapping[str, torch.Tensor]) -> Mapping[str, torch.Tensor]:
+    def forward(self, context: Mapping[str, torch.Tensor] | torch.Tensor) -> Mapping[str, torch.Tensor] | torch.Tensor:
         """
         Forward pass through the `Unsqueeze` block.
         """
-
+        # If the input is a tensor, unsqueeze it directly
+        if isinstance(context, torch.Tensor):
+            return context.unsqueeze(dim=self.dim)
+    
         # Create a shallow copy of the input dictionary because we do not
         # want to modify the original input in place.
         output = dict(context)
-
+        
         # Unsqueeze the specified keys
         for key in self.keys:
             output[key] = context[key].unsqueeze(dim=self.dim)
         return output
 
+class Flatten(SupportsDictInput, nn.Module):
+    """
+    Flatten tensors in the context dictionary.
+    """
+    requires_input_shape = False
+
+    def __init__(self, keys: list[str], start_dim: int) -> None:
+        """
+        Instantiate a `Flatten` block.
+
+        Args:
+            keys: The keys of the context dictionary to flatten.
+        """
+
+        super(Flatten, self).__init__()
+
+        self.keys = keys
+        self.required_keys = keys
+        self.start_dim = start_dim
+
+    def forward(self, context: Mapping[str, torch.Tensor] | torch.Tensor) -> Mapping[str, torch.Tensor] | torch.Tensor:
+        """
+        Forward pass through the `Flatten` block.
+        """
+        # If the input is a tensor, flatten it directly
+        if isinstance(context, torch.Tensor):
+            return context.flatten(start_dim=self.start_dim)
+    
+        # Create a shallow copy of the input dictionary because we do not
+        # want to modify the original input in place.
+        output = dict(context)
+        
+        # Flatten the specified keys
+        for key in self.keys:
+            output[key] = context[key].flatten(start_dim=self.start_dim)
+        return output
 
 class WavelengthPositionalEncoding(SupportsDictInput, nn.Module):
     """
@@ -303,7 +350,7 @@ class WavelengthPositionalEncoding(SupportsDictInput, nn.Module):
 
     requires_input_shape = False
 
-    def __init__(self, keys: list[str]) -> None:
+    def __init__(self, keys: list[str], fusion_type: str) -> None:
         """
         Instantiate a `WavelengthPositionalEncoding` block.
 
@@ -315,25 +362,80 @@ class WavelengthPositionalEncoding(SupportsDictInput, nn.Module):
 
         super(WavelengthPositionalEncoding, self).__init__()
 
+        assert fusion_type in ["add", "concat", "mul"], "Invalid fusion type!"
+
         self.keys = keys
         self.required_keys = keys
+        self.fusion_type = fusion_type
 
     def forward(self, context: Mapping[str, torch.Tensor]) -> torch.Tensor:
         """
         Forward pass through the `WavelengthPositionalEncoding` block.
         """
-
-        wlen = context["wlen"]
-        flux = context["flux"]
-        noise = context.get("error_bars", None)
-
         # TODO: implement the positional encoding here
         # We must ensure that the flux information content is preserved as
         # wavelenghts (in um) can be several orders of magnitude larger than the
         # flux values. Should we normalize the wavelengths first? Even after 
         # normalization, the wavelength range can be much larger than the
         # flux range. 
-        pass            
+
+        output = dict(context)
+        wlen = output["wlen"]
+
+        for key in self.keys:
+            if key == "wlen": continue
+            match self.fusion_type:
+                case "add": 
+                    output[key] += wlen
+                case "mul":
+                    output[key] *= wlen
+                case "concat":
+                    output[key] = torch.cat((output[key], wlen), dim=-1)
+
+        return output
+
+
+class Normalize(SupportsDictInput, nn.Module):
+    """
+    Normalize tensors in the context dictionary.
+    """
+    requires_input_shape = False
+
+    def __init__(self, keys: list[str]) -> None:
+        """
+        Instantiate a `Normalize` block.
+
+        Args:
+            keys: The keys of the context dictionary to normalize.
+            mean: The mean to use for normalization.
+            std: The standard deviation to use for normalization.
+        """
+
+        super(Normalize, self).__init__()
+
+        self.keys = keys
+        self.required_keys = keys
+
+    def forward(self, context: Mapping[str, torch.Tensor] | torch.Tensor) -> Mapping[str, torch.Tensor] | torch.Tensor:
+        """
+        Forward pass through the `Normalize` block.
+        """
+        # If the input is a tensor, normalize it directly
+        if isinstance(context, torch.Tensor):
+            return (context - context.min(dim=-1, keepdim=True)[0]) / (
+                context.max(dim=1, keepdim=True)[0] - context.min(dim=-1, keepdim=True)[0]
+            )
+    
+        # Create a shallow copy of the input dictionary because we do not
+        # want to modify the original input in place.
+        output = dict(context)
+        
+        # Normalize the specified keys
+        for key in self.keys:
+            output[key] = (context[key] - context[key].min(dim=-1, keepdim=True)[0]) / (
+                context[key].max(dim=-1, keepdim=True)[0] - context[key].min(dim=-1, keepdim=True)[0]
+        )
+        return output
 
 
 class PositionalEncoding(nn.Module):
@@ -349,7 +451,6 @@ class PositionalEncoding(nn.Module):
         n_freqs: int,
         encode_theta: bool = True,
         base_freq: float = 2 * pi,
-        fusion_type: str = "concat",
     ) -> None:
         """
         Instantiate a `PositionalEncoding` object.
@@ -367,7 +468,6 @@ class PositionalEncoding(nn.Module):
         self.n_freqs = n_freqs
         self.encode_theta = encode_theta
         self.base_freq = base_freq
-        self.fusion_type = fusion_type
 
         # Create the frequencies and register them as a buffer
         freqs = (base_freq * 2 ** torch.arange(0, n_freqs)).view(1, 1, n_freqs)
