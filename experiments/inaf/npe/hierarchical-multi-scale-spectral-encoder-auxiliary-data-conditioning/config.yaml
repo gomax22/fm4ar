@@ -15,6 +15,11 @@ theta_scaler:
     dataset: "inaf"
     file_path: "$FM4AR_DATASETS_DIR/SBI_INAF/norm_params.pkl"
 
+auxiliary_data_scaler:
+  method: "MeanStdScaler"
+  kwargs:
+    dataset: "inaf"
+    file_path: "$FM4AR_DATASETS_DIR/SBI_INAF/norm_params.pkl"
 
 # -----------------------------------------------------------------------------
 # MODEL ARCHITECTURE
