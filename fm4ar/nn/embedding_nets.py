@@ -14,6 +14,7 @@ from fm4ar.nn.resnets import DenseResidualNet
 from fm4ar.nn.transformers import TransformerEncoder
 from fm4ar.torchutils.weights import load_and_or_freeze_model_weights
 
+from fm4ar.nn.advanced import HierarchicalMultiScaleSpectralEncoder
 
 class SupportsDictInput(ABC):
     """
@@ -52,6 +53,8 @@ def block_type_string_to_class(block_type: str) -> type:
             return DenseResidualNet
         case "TransformerEncoder":
             return TransformerEncoder
+        case "HierarchicalMultiScaleSpectralEncoder":
+            return HierarchicalMultiScaleSpectralEncoder
         case "PositionalEncoding":
             return PositionalEncoding
         case "SoftClipFlux":
@@ -244,7 +247,7 @@ class Concatenate(SupportsDictInput, nn.Module):
 
     requires_input_shape = False
 
-    def __init__(self, keys: list[str]) -> None:
+    def __init__(self, keys: list[str], dim: int) -> None:
         """
         Instantiate a `ConcatenateContext` block.
 
@@ -256,6 +259,7 @@ class Concatenate(SupportsDictInput, nn.Module):
 
         self.keys = keys
         self.required_keys = keys  # TODO: Is there a better way?
+        self.dim = dim
 
     def forward(self, context: Mapping[str, torch.Tensor]) -> torch.Tensor:
         """
@@ -263,8 +267,7 @@ class Concatenate(SupportsDictInput, nn.Module):
         """
 
         # Concatenate the context dictionary into a single tensor
-        context_tensor = torch.cat([context[key] for key in self.keys], dim=1)
-
+        context_tensor = torch.cat([context[key] for key in self.keys], dim=self.dim)
         return context_tensor
 
 

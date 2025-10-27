@@ -15,6 +15,7 @@ theta_scaler:
     dataset: "inaf"
     file_path: "$FM4AR_DATASETS_DIR/SBI_INAF/norm_params.pkl"
 
+
 # -----------------------------------------------------------------------------
 # MODEL ARCHITECTURE
 # -----------------------------------------------------------------------------
@@ -22,28 +23,45 @@ theta_scaler:
 model:
 
   # General settings
-  model_type: "fmpe"
+  model_type: "npe"
   random_seed: 42
-  t_theta_with_glu: true
-  context_with_glu: false
-  sigma_min: 1.0e-4
-
-  time_prior:
-    type: "logit_normal"
-    kwargs:
-      mean: 0.0
-      std: 1.0
 
   # Embedding network for context
   context_embedding_net:
     - block_type: "SoftClipFlux"
       kwargs:
         bound: 100.0
+    - block_type: "Unsqueeze"
+      kwargs:
+        keys: ["flux", "error_bars", "wlen"]
+        dim: 1
     - block_type: "Concatenate"
       kwargs:
-        keys: ["flux", "error_bars"]
+        keys: ["flux", "error_bars", "wlen"]
         dim: 1
-    - block_type: "DenseResidualNet"
+    - block_type: "HierarchicalMultiScaleSpectralEncoder"
+      kwargs:
+        d_model: 128
+        n_heads: 4
+        k: 4
+        n_layers_per_scale: 2
+        patch_sizes: [2048, 4096, 8192, 16384]
+        strides: [256, 512, 1024, 2048]
+        dilations: [2, 4, 8, 16]
+        n_channels: 3
+        mha_block_type: 'dilated'
+        incremental_cross_attention: true
+        fusion_type: 'concat'
+        use_rope: true
+        use_ms_pos_embed: false
+        ffn_type: 'geglu'
+        ffn_hidden_mult: 4
+        ffn_dropout: 0.1
+        pre_rms: true
+        post_rms: true
+        use_qk_norm: true
+        learn_qk_scale: false
+    - block_type: "DenseResidualNet"  
       kwargs:
         hidden_dims: [512, 512]
         activation: "GELU"
@@ -51,44 +69,23 @@ model:
         dropout: 0.1
         use_layer_norm: true
 
-  # Embedding network for (t, theta)
-  t_theta_embedding_net:
-    - block_type: "PositionalEncoding"
-      kwargs:
-        n_freqs: 6
-        encode_theta: false
-    - block_type: "DenseResidualNet"
-      kwargs:
-        hidden_dims: [512, 512]
-        activation: "GELU"
-        output_dim: 512
-        dropout: 0.0
 
-  # Vector field network
-  vectorfield_net:
-    network_type: "DenseResidualNet"
+  # Discrete normalizing flow (wrapped in a compatibility layer)
+  # Note: normflows uses slightly different kwargs (see unit tests for demo)
+  flow_wrapper:
+    flow_library: "glasflow"
     kwargs:
-      hidden_dims:
-        # - 8192
-        # - 4096
-        # - 4096
-        # - 2048
-        - 2048
-        - 1024
-        - 1024
-        - 512
-        - 512
-        - 256
-        - 256
-        - 128
-        - 128
-        - 64
-        - 64
-        - 32
-        - 32
-      activation: "GELU"
-      dropout: 0.1
-      use_layer_norm: true
+      num_flow_steps: 16
+      base_transform_type: "rq-coupling"
+      base_transform_kwargs:
+        hidden_dim: 512
+        num_transform_blocks: 4
+        activation: "GELU"
+        dropout_probability: 0.1
+        use_batch_norm: false
+        num_bins: 16
+        tail_bound: 10.0
+
 
 # -----------------------------------------------------------------------------
 # TRAINING
@@ -116,11 +113,8 @@ training:
       enabled: true
       max_norm: 1.0
     logprob_evaluation:
-      interval: 10
+      interval: null
       n_samples: 2048
-      ode_solver:
-        method: "dopri5"
-        tolerance: 1.0e-4
     optimizer:
       type: "AdamW"
       kwargs:
@@ -129,7 +123,7 @@ training:
       type: "CosineAnnealingLR"
       kwargs:
         T_max: 20
-    use_amp: true
+    use_amp: false
 
 # -----------------------------------------------------------------------------
 # LOCAL SETTINGS
@@ -139,8 +133,5 @@ local:
 
   # Device ("cpu" or "cuda"; or "auto")
   device: "cuda"
-
-
-
 
   

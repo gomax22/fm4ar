@@ -49,6 +49,7 @@ model:
     - block_type: "Concatenate"
       kwargs:
         keys: ["flux", "error_bars"]
+        dim: 1
     - block_type: "DenseResidualNet"
       kwargs:
         hidden_dims: [512, 512]
@@ -77,6 +78,7 @@ model:
         activation: "GELU"
         output_dim: 512
         dropout: 0.1
+        use_layer_norm: true
 
   # Vector field network
   vectorfield_net:
@@ -154,8 +156,4 @@ local:
   # Device ("cpu" or "cuda"; or "auto")
   device: "cuda"
 
-  # Settings for Weights & Biases, remove if not used
-  wandb:
-    project: "fm4ar"
-    group: "inaf"
-    name: "fmpe__auxiliary-data-conditioning-custom-noise-conditional"
+

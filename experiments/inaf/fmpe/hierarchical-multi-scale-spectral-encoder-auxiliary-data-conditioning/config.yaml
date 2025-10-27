@@ -29,27 +29,52 @@ model:
   sigma_min: 1.0e-4
 
   time_prior:
-    type: "logit_normal"
+    type: "power_law"
     kwargs:
-      mean: 0.0
-      std: 1.0
+      time_prior_exponent: 3.0
 
   # Embedding network for context
   context_embedding_net:
     - block_type: "SoftClipFlux"
       kwargs:
         bound: 100.0
+    - block_type: "Unsqueeze"
+      kwargs:
+        keys: ["flux", "error_bars", "wlen"]
+        dim: 1
     - block_type: "Concatenate"
       kwargs:
-        keys: ["flux", "error_bars"]
+        keys: ["flux", "error_bars", "wlen"]
         dim: 1
-    - block_type: "DenseResidualNet"
+    - block_type: "HierarchicalMultiScaleSpectralEncoder"
       kwargs:
-        hidden_dims: [512, 512]
-        activation: "GELU"
-        output_dim: 512
-        dropout: 0.1
-        use_layer_norm: true
+        d_model: 128
+        n_heads: 4
+        k: 4
+        n_layers_per_scale: 2
+        patch_sizes: [2048, 4096, 8192, 16384]
+        strides: [256, 512, 1024, 2048]
+        dilations: [2, 4, 8, 16]
+        n_channels: 3
+        mha_block_type: 'dilated'
+        incremental_cross_attention: false
+        fusion_type: 'concat'
+        use_rope: true
+        use_ms_pos_embed: false
+        ffn_type: 'geglu'
+        ffn_hidden_mult: 4
+        ffn_dropout: 0.1
+        pre_rms: true
+        post_rms: true
+        use_qk_norm: true
+        learn_qk_scale: false
+    # - block_type: "DenseResidualNet"  
+    #   kwargs:
+    #     hidden_dims: [512, 512]
+    #     activation: "GELU"
+    #     output_dim: 512
+    #     dropout: 0.1
+    #     use_layer_norm: true
 
   # Embedding network for (t, theta)
   t_theta_embedding_net:
@@ -63,6 +88,15 @@ model:
         activation: "GELU"
         output_dim: 512
         dropout: 0.0
+
+  auxiliary_data_embedding_net:
+    - block_type: "DenseResidualNet"
+      kwargs:
+        hidden_dims: [512, 512]
+        activation: "GELU"
+        output_dim: 512
+        dropout: 0.1
+        use_layer_norm: true
 
   # Vector field network
   vectorfield_net:
@@ -139,8 +173,5 @@ local:
 
   # Device ("cpu" or "cuda"; or "auto")
   device: "cuda"
-
-
-
 
   

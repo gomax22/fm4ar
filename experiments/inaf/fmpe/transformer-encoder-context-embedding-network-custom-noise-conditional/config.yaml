@@ -45,6 +45,7 @@ model:
     - block_type: "Concatenate"
       kwargs:
         keys: ["flux", "error_bars"]
+        dim: 1
     # - block_type: "WavelengthPositionalEncoding"
     #   kwargs:
     #     keys: ["flux", "error_bars", "wlen"]
@@ -157,8 +158,4 @@ local:
   device: "cuda"
 
   
-  # Settings for Weights & Biases, remove if not used
-  wandb:
-    project: "fm4ar"
-    group: "inaf"
-    name: "fmpe__transformer-encoder-context-embedding-network-custom-noise-conditional"
+

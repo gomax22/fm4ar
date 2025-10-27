@@ -52,6 +52,7 @@ model:
     - block_type: "Concatenate"
       kwargs:
         keys: ["flux", "error_bars"]
+        dim: 1
     - block_type: "TransformerEncoder"
       kwargs:
         seq_length: 102400
@@ -160,8 +161,4 @@ local:
   device: "cuda"
 
   
-  # Settings for Weights & Biases, remove if not used
-  wandb:
-    project: "fm4ar"
-    group: "inaf"
-    name: "fmpe__wavelength-positional-encoding"
+
