@@ -56,7 +56,8 @@ model:
         strides: [256, 512, 1024, 2048]
         dilations: [2, 4, 8, 16]
         n_channels: 3
-        mha_block_type: 'dilated'
+        mhsa_block_type: 'dilated'
+        mhca_block_type: 'dilated'
         incremental_cross_attention: false
         fusion_type: 'concat'
         use_rope: true

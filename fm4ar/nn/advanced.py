@@ -33,9 +33,74 @@ class RoPE(nn.Module):
         return X_rot.view(B, N, D)
 
 # -----------------------------
-# Dilated MHA
+# Dilated MHSA
 # -----------------------------
-class DilatedMHABlock(nn.Module):
+class DilatedMHSABlock(nn.Module): 
+    def __init__(self, d_model, n_heads, k=8, dilation=1, 
+                 rope=None, use_qk_norm=True, learn_qk_scale=False
+    ): 
+        super().__init__() 
+        self.d_model = d_model 
+        self.n_heads = n_heads 
+        self.d_head = d_model // n_heads 
+        self.k = k 
+        self.dilation = dilation 
+        self.qkv = nn.Linear(d_model, 3 * d_model) 
+        self.out = nn.Linear(d_model, d_model) 
+        self.rope = rope 
+        self.use_qk_norm = use_qk_norm 
+        self.learn_qk_scale = learn_qk_scale 
+        
+        # Learnable scale for QK-norm 
+        if use_qk_norm and learn_qk_scale: 
+            self.scale = nn.Parameter(torch.ones(1)) 
+        else: 
+            self.register_buffer("scale", torch.tensor(1.0 if use_qk_norm else 1.0/self.d_head)) 
+            
+    def forward(self, x, positions=None): 
+        B, N, D = x.shape 
+        qkv = self.qkv(x) 
+        q, k, v = qkv.chunk(3, dim=-1) 
+        q = q.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
+        k = k.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
+        v = v.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
+        
+        if self.rope is not None and positions is not None: 
+            pos_rep = positions.repeat_interleave(self.n_heads, dim=0) 
+            q = self.rope(q.reshape(B * self.n_heads, N, self.d_head), pos_rep) 
+            k = self.rope(k.reshape(B * self.n_heads, N, self.d_head), pos_rep) 
+            q = q.view(B, self.n_heads, N, self.d_head) 
+            k = k.view(B, self.n_heads, N, self.d_head) 
+            
+        if self.use_qk_norm: 
+            q = q / (q.norm(dim=-1, keepdim=True)+1e-6) 
+            k = k / (k.norm(dim=-1, keepdim=True)+1e-6) 
+            scale = self.scale # learnable or fixed 
+        else: 
+            scale = 1.0 / (self.d_head ** 0.5) 
+            
+        mask = torch.ones((N, N), dtype=torch.bool, device=x.device) 
+        idxs = torch.arange(N, device=x.device) 
+        for i in range(N): 
+            jmin = max(0, i - self.k * self.dilation) 
+            jmax = min(N - 1, i + self.k * self.dilation) 
+            allowed = idxs[jmin:jmax + 1] 
+            allowed = allowed[((allowed - i) % self.dilation) == 0] 
+            mask[i, allowed] = False 
+                
+        attn_scores = (q @ k.transpose(-2, -1)) * scale 
+        attn_scores = attn_scores.masked_fill(mask.unsqueeze(0).unsqueeze(0), float("-inf")) 
+        attn = attn_scores.softmax(dim=-1) 
+        out = attn @ v 
+        out = out.transpose(1, 2).reshape(B, N, D) 
+        return self.out(out)
+
+
+
+# -----------------------------
+# Dilated MHCA
+# -----------------------------
+class DilatedMHCABlock(nn.Module):
     def __init__(self, d_model, n_heads, k=8, dilation=1, rope_module=None,
                  use_qk_norm=False, learnable_qk_scale=False):
         super().__init__()
@@ -303,9 +368,56 @@ def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
 # -----------------------
-# Classic Multi-Head Attention with optional RoPE + QK-norm
+# Classic Multi-Head Self-Attention with optional RoPE + QK-norm
 # -----------------------
-class ClassicMHABlock(nn.Module):
+class ClassicMHSABlock(nn.Module): 
+    def __init__(self, d_model, n_heads, rope_module=None, 
+                 use_qk_norm=False, learnable_qk_scale=False): 
+        super().__init__() 
+        self.d_model = d_model 
+        self.n_heads = n_heads 
+        self.d_head = d_model // n_heads 
+        self.rope = rope_module 
+        self.use_qk_norm = use_qk_norm 
+        self.qkv = nn.Linear(d_model, 3*d_model) 
+        self.out = nn.Linear(d_model, d_model) 
+        if use_qk_norm and learnable_qk_scale: 
+            self.scale = nn.Parameter(torch.ones(1)) 
+        else: 
+            self.register_buffer("scale", torch.tensor(1.0 if use_qk_norm else 1.0/self.d_head)) 
+            
+    def forward(self, x, positions=None): 
+        B, N, D = x.shape 
+        qkv = self.qkv(x) 
+        q, k, v = qkv.chunk(3, dim=-1) 
+        q = q.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
+        k = k.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
+        v = v.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
+        if self.rope is not None and positions is not None: 
+            pos_rep = positions.repeat_interleave(self.n_heads, dim=0) 
+            q = self.rope(q.reshape(B * self.n_heads, N, self.d_head), pos_rep) 
+            k = self.rope(k.reshape(B * self.n_heads, N, self.d_head), pos_rep) 
+            q = q.view(B, self.n_heads, N, self.d_head) 
+            k = k.view(B, self.n_heads, N, self.d_head) 
+            
+        if self.use_qk_norm: 
+            q = q / (q.norm(dim=-1, keepdim=True)+1e-6) 
+            k = k / (k.norm(dim=-1, keepdim=True)+1e-6) 
+            scale = self.scale 
+        else: 
+            scale = 1.0 / (self.d_head ** 0.5) 
+        
+        attn = torch.matmul(q, k.transpose(-2,-1)) * scale 
+        attn = F.softmax(attn, dim=-1) 
+        out = torch.matmul(attn, v) 
+        out = out.transpose(1,2).reshape(B,N,D) 
+        return self.out(out)
+
+
+# -----------------------
+# Classic Multi-Head Cross-Attention with optional RoPE + QK-norm
+# -----------------------
+class ClassicMHCABlock(nn.Module):
     def __init__(self, d_model, n_heads, rope_module=None,
                  use_qk_norm=False, learnable_qk_scale=False):
         super().__init__()
@@ -384,7 +496,7 @@ class SiTBlock(nn.Module):
         self.use_adaln = use_adaln
         self.norm1 = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
         self.norm2 = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
-        self.attn = ClassicMHABlock(d_model, n_heads, rope_module, use_qk_norm, learnable_qk_scale)
+        self.attn = ClassicMHSABlock(d_model, n_heads, rope_module, use_qk_norm, learnable_qk_scale)
         self.mlp = get_ffn(ffn_type, d_model, ffn_hidden_mult, ffn_dropout)
 
         if use_adaln:
@@ -469,13 +581,22 @@ class SiTSeqToVector(nn.Module):
         return self.output(x[:,0])
 
 
-def get_mha_block(mha_block_type, d_model, n_heads, k=8, dilation=1, rope_module=None, use_qk_norm=False, learn_qk_scale=False):
-    if mha_block_type == 'dilated':
-        return DilatedMHABlock(d_model, n_heads, k, dilation, rope_module, use_qk_norm, learn_qk_scale)
-    elif mha_block_type == 'classic':
-        return ClassicMHABlock(d_model, n_heads, rope_module, use_qk_norm, learn_qk_scale)
+def get_mhsa_block(mhsa_block_type, d_model, n_heads, k=8, dilation=1, rope_module=None, use_qk_norm=False, learn_qk_scale=False):
+    if mhsa_block_type == 'dilated':
+        return DilatedMHSABlock(d_model, n_heads, k, dilation, rope_module, use_qk_norm, learn_qk_scale)
+    elif mhsa_block_type == 'classic':
+        return ClassicMHSABlock(d_model, n_heads, rope_module, use_qk_norm, learn_qk_scale)
     else:
-        raise ValueError(f"Unknown mha_block_type: {mha_block_type}")
+        raise ValueError(f"Unknown mhsa_block_type: {mhsa_block_type}")
+
+
+def get_mhca_block(mhca_block_type, d_model, n_heads, k=8, dilation=1, rope_module=None, use_qk_norm=False, learn_qk_scale=False):
+    if mhca_block_type == 'dilated':
+        return DilatedMHCABlock(d_model, n_heads, k, dilation, rope_module, use_qk_norm, learn_qk_scale)
+    elif mhca_block_type == 'classic':
+        return ClassicMHCABlock(d_model, n_heads, rope_module, use_qk_norm, learn_qk_scale)
+    else:
+        raise ValueError(f"Unknown mhsa_block_type: {mhca_block_type}")
 
 # -----------------------------
 # Hierarchical Multi-Scale Encoder
@@ -483,7 +604,8 @@ def get_mha_block(mha_block_type, d_model, n_heads, k=8, dilation=1, rope_module
 class HierarchicalMultiScaleSpectralEncoder(nn.Module):
     def __init__(self, d_model=256, n_heads=4, k=4, n_layers_per_scale=2,
                  patch_sizes=[16,32,64], strides=[1, 2, 4], dilations=[2, 4, 8], 
-                 mha_block_type='dilated', incremental_cross_attention=False, 
+                 mhsa_block_type='dilated', mhca_block_type='dilated',
+                 incremental_cross_attention=False, 
                  use_ms_pos_embed=False, n_channels=1, use_rope=True, 
                  use_qk_norm=True, learn_qk_scale=False, pre_rms=True, post_rms=True,
                  ffn_type='swiglu', ffn_hidden_mult=4, ffn_dropout=0.0,
@@ -497,7 +619,7 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
         self.use_ms_pos_embed = use_ms_pos_embed
         self.ffn_type = ffn_type
         self.post_rms = post_rms
-        self.mha_block_type = mha_block_type
+        self.mhsa_block_type = mhsa_block_type
         self.incremental_cross_attention = incremental_cross_attention
 
         for patch_size, stride, dilation in zip(self.patch_sizes, self.strides, self.dilations):
@@ -507,18 +629,32 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
                 freqs = make_frequencies_physical(d_model // n_heads)
                 rope_module = RoPE(freqs)
             for _ in range(n_layers_per_scale):
-                mha = get_mha_block(
-                    mha_block_type, d_model, n_heads, k, dilation, 
+                mhsa = get_mhsa_block(
+                    mhsa_block_type, d_model, n_heads, k, dilation, 
                     rope_module, use_qk_norm, learn_qk_scale
                 )
-                pre_rms = RMSNorm(d_model) if pre_rms else nn.Identity()
+                mhca = get_mhca_block(
+                    mhca_block_type, d_model, n_heads, k, dilation, 
+                    rope_module, use_qk_norm, learn_qk_scale
+                )
+                pre_mhsa_rms = RMSNorm(d_model) if pre_rms else nn.Identity()
+                pre_mhca_rms = RMSNorm(d_model) if pre_rms else nn.Identity()
+                pre_ffn_rms = RMSNorm(d_model) if pre_rms else nn.Identity()
                 ff = get_ffn(self.ffn_type, d_model, ffn_hidden_mult, ffn_dropout)
-                post_rms = RMSNorm(d_model) if post_rms else nn.Identity()
+                post_mhsa_rms = RMSNorm(d_model) if post_rms else nn.Identity()
+                post_mhca_rms = RMSNorm(d_model) if post_rms else nn.Identity()
+                post_ffn_rms = RMSNorm(d_model) if post_rms else nn.Identity()
                 layers.append(nn.ModuleDict(
-                    {'mha': mha, 
+                    {'mhsa': mhsa, 
+                     'mhca': mhca,
                      'ff': ff, 
-                     'pre_rms': pre_rms, 
-                     'post_rms': post_rms
+                     'pre_mhsa_rms': pre_mhsa_rms, 
+                     'pre_mhca_rms': pre_mhca_rms,
+                     'post_mhca_rms': post_mhca_rms,
+                     'post_mhsa_rms': post_mhsa_rms,
+                     'pre_ffn_rms': pre_ffn_rms,
+                     'post_ffn_rms': post_ffn_rms
+
                     }
                 ))
 
@@ -557,7 +693,7 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
         if self.use_ms_pos_embed:
             self.ms_pos_embed = MultiScalePositionalEmbedding(d_model, patch_sizes)
         
-        self.norm = nn.LayerNorm(d_model)
+        self.norm = RMSNorm(d_model)
 
     def forward(self, x):
         # x: (B, C, N) -> (B, N, C)
@@ -579,23 +715,35 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
             positions = torch.log(positions / positions.min(dim=1, keepdim=True).values)
 
             for layer in scale['layers']:
-                x_scale = layer['pre_rms'](x_scale)
-                x_scale = x_scale + layer['mha'](
-                    x_scale, 
-                    positions, 
-                    features_per_scale[-1] if (
-                        self.incremental_cross_attention and i > 0
-                    ) else None,
-                    positions_per_scale[-1] if (
-                        self.incremental_cross_attention and i > 0
-                    ) else None
+                x_scale = x_scale + layer['post_mhsa_rms'](
+                    layer['mhsa'](
+                        layer['pre_mhsa_rms'](x_scale), 
+                        positions, 
+                    )
                 )
-                x_scale = layer['post_rms'](x_scale)
-                x_scale = x_scale + layer['ff'](x_scale)
+                x_scale = x_scale + layer['post_mhca_rms'](
+                    layer['mhca'](
+                        layer['pre_mhca_rms'](x_scale), 
+                        positions, 
+                        features_per_scale[-1] if (
+                        self.incremental_cross_attention and i > 0
+                        ) else None,
+                        positions_per_scale[-1] if (
+                            self.incremental_cross_attention and i > 0
+                        ) else None
+                    )
+                )
+                x_scale = x_scale + layer['post_ffn_rms'](
+                    layer['ff'](
+                        layer['pre_ffn_rms'](x_scale)
+                    )
+                )
 
             features_per_scale.append(x_scale)
             positions_per_scale.append(positions)
-    
+
+        if self.incremental_cross_attention:
+            return self.norm(features_per_scale[-1]).flatten(start_dim=1)
 
         # Fusion
         if self.fusion_type == 'concat':
@@ -608,7 +756,7 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
             fused = features_per_scale[0]
             for f_coarse in features_per_scale[1:]:
                 fused = self.fusion_module(fused, f_coarse)
-        # fused = self.norm(fused)
+        fused = self.norm(fused)
         fused = fused.flatten(start_dim=1)
         
         return fused
@@ -627,9 +775,11 @@ if __name__ == "__main__":
         n_layers_per_scale=8,
         patch_sizes=[2048, 4096, 8192, 16384],
         strides=[256, 512, 1024, 2048],
+        dilations=[2, 4, 8, 16],
         n_channels=C,
-        mha_block_type='classic',
-        incremental_cross_attention=False,
+        mhsa_block_type='dilated',
+        mhca_block_type='dilated',
+        incremental_cross_attention=True,
         fusion_type='concat',
         fusion_hidden=512,
         use_rope=True,
