@@ -25,6 +25,8 @@ dependencies = [
     # Add here new dependencies
     "tables==3.10.2",
     "netcal==1.3.6",
+    "torchinfo==1.8.0",
+    "seaborn==0.12.3",
 
     # Pinned dependencies
     "chainconsumer==1.1.1",
