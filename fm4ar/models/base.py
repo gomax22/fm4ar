@@ -366,6 +366,9 @@ class Base:
             ExitStatus indicating the reason for why this function
             stopped (completed, early stopped, or runtime exceeded).
         """
+        
+        # Save the initial model before starting training
+        self.save_model(name="initial", save_training_info=True)
 
         # Run for as long as the runtime limits allow
         while not runtime_limits.limits_exceeded(self.epoch):

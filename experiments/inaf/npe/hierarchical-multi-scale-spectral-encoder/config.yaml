@@ -43,14 +43,12 @@ model:
       kwargs:
         d_model: 128
         n_heads: 4
-        k: 4
         n_layers_per_scale: 2
         patch_sizes: [2048, 4096, 8192, 16384]
         strides: [256, 512, 1024, 2048]
-        dilations: [2, 4, 8, 16]
         n_channels: 3
-        mhsa_block_type: 'dilated'
-        mhca_block_type: 'dilated'
+        mhsa_block_type: 'classic'
+        mhca_block_type: 'classic'
         incremental_cross_attention: false
         fusion_type: 'concat'
         use_rope: true

@@ -253,6 +253,29 @@ class PatchEmbedding(nn.Module):
             patches.append(patch)
         x_patched = torch.stack(patches, dim=1)
         return self.proj(x_patched)
+    
+
+# -----------------------------
+# Patch Embedding with overlap
+# -----------------------------
+class PatchEmbeddingWithoutOverlap(nn.Module):
+    """Converts 1D signal into patch embeddings for Transformer input."""
+    def __init__(self, in_channels: int, patch_size: int, emb_dim: int, seq_length: int):
+        super().__init__()
+        assert seq_length % patch_size == 0, "Signal length must be divisible by patch size."
+        self.num_patches = seq_length // patch_size
+        self.proj = nn.Conv1d(in_channels, emb_dim, kernel_size=patch_size, stride=patch_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Tensor of shape [B, C, L]
+        Returns:
+            Tensor of shape [B, num_patches, emb_dim]
+        """
+        x = self.proj(x)  # [B, emb_dim, num_patches]
+        x = x.transpose(1, 2)  # [B, num_patches, emb_dim]
+        return x
 
 
 # -----------------------------
@@ -494,8 +517,13 @@ class SiTBlock(nn.Module):
                  use_adaln=True):
         super().__init__()
         self.use_adaln = use_adaln
-        self.norm1 = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
-        self.norm2 = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
+        self.pre_mhsa_rms = RMSNorm(d_model)
+        self.post_mhsa_rms = RMSNorm(d_model)
+
+        self.pre_ffn_rms = RMSNorm(d_model)
+        self.post_ffn_rms = RMSNorm(d_model)
+
+        self.final_norm = RMSNorm(d_model)
         self.attn = ClassicMHSABlock(d_model, n_heads, rope_module, use_qk_norm, learnable_qk_scale)
         self.mlp = get_ffn(ffn_type, d_model, ffn_hidden_mult, ffn_dropout)
 
@@ -509,33 +537,36 @@ class SiTBlock(nn.Module):
         if self.use_adaln:
             assert c is not None, "Conditioning c required when use_adaln=True"
             shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
-            x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa))
-            x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+            x = x + gate_msa.unsqueeze(1) * self.post_mhsa_rms(
+                self.attn(modulate(self.pre_mhsa_rms(x), shift_msa, scale_msa))
+            )
+            x = x + gate_mlp.unsqueeze(1) * self.post_ffn_rms(
+                self.mlp(modulate(self.post_ffn_rms(x), shift_mlp, scale_mlp))
+            )
         else:
-            x = x + self.attn(self.norm1(x))
-            x = x + self.mlp(self.norm2(x))
+            x = x + self.post_mhsa_rms(self.attn(self.pre_mhsa_rms(x)))
+            x = x + self.post_ffn_rms(self.mlp(self.pre_ffn_rms(x)))
         return x
 
 # -----------------------
 # Full SiT Sequence-to-Vector Model
 # -----------------------
 class SiTSeqToVector(nn.Module):
-    def __init__(self, d_model, n_heads, num_layers, theta_dim,
+    def __init__(self, d_model, n_heads, num_layers, n_channels, theta_dim,
                  ffn_type='swiglu', ffn_hidden_mult=4, ffn_dropout=0.0,
-                 pre_rms=True, post_rms=True,
                  use_qk_norm=True, learnable_qk_scale=True,
-                 rope_module=None, use_adaln=False,
-                 t_dim=1, aux_dim=0):
+                 rope_module=None, use_adaln=True
+    ):
         super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.num_layers = num_layers
+        self.n_channels = n_channels
+        self.theta_dim = theta_dim
         self.cls_token = nn.Parameter(torch.zeros(1,1,d_model))
-        self.pre_rms = RMSNorm(d_model) if pre_rms else nn.Identity()
-        self.post_rms = RMSNorm(d_model) if post_rms else nn.Identity()
         self.use_adaln = use_adaln
 
-        if use_adaln:
-            self.t_emb = nn.Linear(t_dim, d_model)
-            self.theta_emb = nn.Linear(theta_dim, d_model)
-            self.aux_emb = nn.Linear(aux_dim, d_model) if aux_dim > 0 else None
+        self.proj = nn.LazyLinear(d_model)
 
         # Transformer blocks
         self.layers = nn.ModuleList([
@@ -555,27 +586,27 @@ class SiTSeqToVector(nn.Module):
         # Output projection
         self.output = nn.Linear(d_model, theta_dim)
 
-    def forward(self, latents, t=None, theta_t=None, aux_vars=None):
+    def forward(self, latents, t_theta, aux_data):
         B = latents.size(0)
+
+        if latents.dim() == 2:
+            latents = latents.unsqueeze(-1)
+        else:
+            latents = latents.view(B, self.n_channels, -1)
+        # Linear projection
+        latents = self.proj(latents) # (B, N, d_model)
+
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat([cls_tokens, latents], dim=1)
 
         # Compute conditioning vector for AdaLN
         c = None
-        if self.use_adaln:
-            c = self.t_emb(t) + self.theta_emb(theta_t)
-            if aux_vars is not None and self.aux_emb is not None:
-                c = c + self.aux_emb(aux_vars)
-
-        # Apply pre-RMSNorm
-        x = self.pre_rms(x)
+        if self.use_adaln and aux_data is not None:
+            c = t_theta + aux_data
 
         # Apply transformer blocks
         for layer in self.layers:
             x = layer(x, c=c)
-
-        # Apply post-RMSNorm
-        x = self.post_rms(x)
 
         # Return CLS token output as vectorfield
         return self.output(x[:,0])
@@ -596,7 +627,7 @@ def get_mhca_block(mhca_block_type, d_model, n_heads, k=8, dilation=1, rope_modu
     elif mhca_block_type == 'classic':
         return ClassicMHCABlock(d_model, n_heads, rope_module, use_qk_norm, learn_qk_scale)
     else:
-        raise ValueError(f"Unknown mhsa_block_type: {mhca_block_type}")
+        raise ValueError(f"Unknown mhca_block_type: {mhca_block_type}")
 
 # -----------------------------
 # Hierarchical Multi-Scale Encoder
@@ -793,28 +824,24 @@ if __name__ == "__main__":
 
     summary(encoder, input_data=x, depth=8)
 
-
     out = encoder(x)
     print(out.shape)
 
-
     # Example SiTSeqToVector
-    # model = SiTSeqToVector(
-    #     d_model=256,
-    #     n_heads=4,
-    #     num_layers=12,
-    #     theta_dim=6,
-    #     ffn_type='geglu',
-    #     ffn_hidden_mult=4,
-    #     ffn_dropout=0.0,
-    #     pre_rms=True,
-    #     post_rms=True,
-    #     use_qk_norm=True,
-    #     learnable_qk_scale=True,
-    #     use_adaln=True,
-    #     t_dim=1,
-    #     aux_dim=9
-    # )
-    # summary(model, input_data=[out, torch.randn(B,1), torch.randn(B,6), torch.randn(B,9)], depth=6)
-    # out = model(out, torch.randn(B,1), torch.randn(B,6), torch.randn(B,9))
-    # print(out.shape)    
+    # TODO: test when n_channels == 1, e.g., latents = output of a DenseResidualNet
+    model = SiTSeqToVector(
+        d_model=256,
+        n_heads=4,
+        num_layers=12,
+        n_channels=43,
+        theta_dim=6,
+        ffn_type='geglu',
+        ffn_hidden_mult=4,
+        ffn_dropout=0.0,
+        use_qk_norm=True,
+        learnable_qk_scale=True,
+        use_adaln=True,
+    )
+    summary(model, input_data=[torch.randn(B, 43, 256), torch.randn(B,256), torch.randn(B,256)], depth=6)
+    out = model(torch.randn(B, 43, 256), torch.randn(B,256), torch.randn(B,256))
+    print(out.shape)    

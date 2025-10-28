@@ -4,7 +4,9 @@
 
 # General settings
 checkpoint_file_name: "model__best.pt"
-model_kwargs: {} 
+model_kwargs:
+  method: rk4
+  tolerance: 1.0e-5  # tolerance for ODE solver on FMPE models
 loss_kwargs: {}
 
 # Stage 1: Draw samples from the proposal distribution
