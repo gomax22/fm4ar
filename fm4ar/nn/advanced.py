@@ -387,8 +387,10 @@ def get_ffn(ffn_type, d_model, ffn_hidden_mult, ffn_dropout):
 # -----------------------
 # Modulation function for AdaLN-Zero
 # -----------------------
-def modulate(x, shift, scale):
-    return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+def modulate(x, shift, scale, unsqueeze=True):
+    scale = scale.unsqueeze(1) if unsqueeze else scale
+    shift = shift.unsqueeze(1) if unsqueeze else shift
+    return x * (1 + scale) + shift
 
 # -----------------------
 # Classic Multi-Head Self-Attention with optional RoPE + QK-norm
@@ -511,7 +513,7 @@ class ClassicMHCABlock(nn.Module):
 # SiT Block with optional AdaLN-Zero
 # -----------------------
 class SiTBlock(nn.Module):
-    def __init__(self, d_model, n_heads, rope_module=None, 
+    def __init__(self, d_model, n_heads, use_rope=True, 
                  use_qk_norm=False, learnable_qk_scale=False, 
                  ffn_type='swiglu', ffn_hidden_mult=4.0, ffn_dropout=0.0, 
                  use_adaln=True):
@@ -524,6 +526,10 @@ class SiTBlock(nn.Module):
         self.post_ffn_rms = RMSNorm(d_model)
 
         self.final_norm = RMSNorm(d_model)
+        rope_module = None
+        if use_rope:
+            freqs = make_frequencies_physical(d_model // n_heads)
+            rope_module = RoPE(freqs)
         self.attn = ClassicMHSABlock(d_model, n_heads, rope_module, use_qk_norm, learnable_qk_scale)
         self.mlp = get_ffn(ffn_type, d_model, ffn_hidden_mult, ffn_dropout)
 
@@ -541,39 +547,80 @@ class SiTBlock(nn.Module):
                 self.attn(modulate(self.pre_mhsa_rms(x), shift_msa, scale_msa))
             )
             x = x + gate_mlp.unsqueeze(1) * self.post_ffn_rms(
-                self.mlp(modulate(self.post_ffn_rms(x), shift_mlp, scale_mlp))
+                self.mlp(modulate(self.pre_ffn_rms(x), shift_mlp, scale_mlp))
             )
         else:
             x = x + self.post_mhsa_rms(self.attn(self.pre_mhsa_rms(x)))
             x = x + self.post_ffn_rms(self.mlp(self.pre_ffn_rms(x)))
         return x
 
+
+class FinalLayer(nn.Module):
+    """
+    The final layer of SiT.
+    """
+    def __init__(self, d_model, output_dim):
+        super().__init__()
+        self.norm_final = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
+        self.linear = nn.Linear(d_model, output_dim, bias=True)
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(d_model, 2 * d_model, bias=True)
+        )
+
+    def forward(self, x, c):
+        shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
+        x = modulate(self.norm_final(x), shift, scale, unsqueeze=False)
+        x = self.linear(x) # 256 -> output_dim
+        return x
+
 # -----------------------
 # Full SiT Sequence-to-Vector Model
 # -----------------------
-class SiTSeqToVector(nn.Module):
-    def __init__(self, d_model, n_heads, num_layers, n_channels, theta_dim,
+class SiT(nn.Module):
+    def __init__(self, 
+                 input_shape, output_dim, context_dim_first, context_dim_second,
+                 d_model, n_heads, num_layers, n_channels,
                  ffn_type='swiglu', ffn_hidden_mult=4, ffn_dropout=0.0,
                  use_qk_norm=True, learnable_qk_scale=True,
-                 rope_module=None, use_adaln=True
+                 use_rope=True, use_adaln=True
     ):
         super().__init__()
+
+        self.input_dim = input_shape[0]
+        self.output_dim = output_dim
+        self.context_dim_first = context_dim_first
+        self.context_dim_second = context_dim_second
+
         self.d_model = d_model
         self.n_heads = n_heads
         self.num_layers = num_layers
         self.n_channels = n_channels
-        self.theta_dim = theta_dim
+        self.output_dim = output_dim
         self.cls_token = nn.Parameter(torch.zeros(1,1,d_model))
         self.use_adaln = use_adaln
 
-        self.proj = nn.LazyLinear(d_model)
+        # AdaLN projections
+        self.adaLN_first_proj = nn.Identity()
+        self.adaLN_second_proj = nn.Identity()
+        if use_adaln:
+            if context_dim_first is not None and context_dim_first != d_model:
+                self.adaLN_first_proj = nn.Linear(context_dim_first, d_model)
+            else:
+                self.adaLN_first_proj = nn.Identity()
+            if context_dim_second is not None and context_dim_second != d_model:
+                self.adaLN_second_proj = nn.Linear(context_dim_second, d_model) 
+            else:
+                self.adaLN_second_proj = nn.Identity()
+
+        self.proj = nn.Linear(n_channels, d_model)
 
         # Transformer blocks
         self.layers = nn.ModuleList([
             SiTBlock(
                 d_model=d_model,
                 n_heads=n_heads,
-                rope_module=rope_module,
+                use_rope=use_rope,
                 use_qk_norm=use_qk_norm,
                 learnable_qk_scale=learnable_qk_scale,
                 ffn_type=ffn_type,
@@ -584,32 +631,58 @@ class SiTSeqToVector(nn.Module):
         ])
 
         # Output projection
-        self.output = nn.Linear(d_model, theta_dim)
+        self.final_layer = nn.Sequential(
+            
+        )
+        self.output = FinalLayer(d_model, output_dim)
+        self.initialize_weights()
 
-    def forward(self, latents, t_theta, aux_data):
-        B = latents.size(0)
+        
+    def initialize_weights(self):
+        # Initialize transformer layers:
+        def _basic_init(module):
+            if isinstance(module, nn.Linear):
+                torch.nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+        self.apply(_basic_init)
 
-        if latents.dim() == 2:
-            latents = latents.unsqueeze(-1)
+
+    def forward(self, 
+        x: torch.Tensor,    # latents
+        first_context: torch.Tensor | None = None, # aux_data
+        second_context: torch.Tensor | None = None, # t_theta
+    ) -> torch.Tensor:
+        B = x.size(0)
+
+        if x.dim() == 2:
+            x = x.unsqueeze(-1)
         else:
-            latents = latents.view(B, self.n_channels, -1)
+            x = x.view(B, self.n_channels, -1) # 512 or previous d_model
         # Linear projection
-        latents = self.proj(latents) # (B, N, d_model)
+            
+        x = self.proj(x) # (B, N, d_model)
 
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat([cls_tokens, latents], dim=1)
+        x = torch.cat([cls_tokens, x], dim=1)
 
         # Compute conditioning vector for AdaLN
-        c = None
-        if self.use_adaln and aux_data is not None:
-            c = t_theta + aux_data
+        if self.use_adaln:
+            if second_context is not None and first_context is not None:
+                c = self.adaLN_first_proj(first_context) + self.adaLN_second_proj(second_context)
+            elif first_context is None:
+                c = self.adaLN_second_proj(second_context)
+            elif second_context is None:
+                c = self.adaLN_first_proj(first_context)
+        else:
+            c = None
 
         # Apply transformer blocks
         for layer in self.layers:
             x = layer(x, c=c)
 
         # Return CLS token output as vectorfield
-        return self.output(x[:,0])
+        return self.output(x[:,0], c=c)
 
 
 def get_mhsa_block(mhsa_block_type, d_model, n_heads, k=8, dilation=1, rope_module=None, use_qk_norm=False, learn_qk_scale=False):
@@ -829,19 +902,23 @@ if __name__ == "__main__":
 
     # Example SiTSeqToVector
     # TODO: test when n_channels == 1, e.g., latents = output of a DenseResidualNet
-    model = SiTSeqToVector(
+    model = SiT(
+        input_shape=(512,),
+        output_dim=6,
+        context_dim_first=512,
+        context_dim_second=512,
         d_model=256,
         n_heads=4,
         num_layers=12,
-        n_channels=43,
-        theta_dim=6,
+        n_channels=1,
         ffn_type='geglu',
         ffn_hidden_mult=4,
         ffn_dropout=0.0,
         use_qk_norm=True,
         learnable_qk_scale=True,
         use_adaln=True,
+        use_rope=True
     )
-    summary(model, input_data=[torch.randn(B, 43, 256), torch.randn(B,256), torch.randn(B,256)], depth=6)
-    out = model(torch.randn(B, 43, 256), torch.randn(B,256), torch.randn(B,256))
+    summary(model, input_data=[torch.randn(B, 512), torch.randn(B,512), torch.randn(B,512)], depth=6)
+    out = model(torch.randn(B, 512), None, torch.randn(B,512))
     print(out.shape)    

@@ -10,6 +10,7 @@ import torch
 
 from fm4ar.nn.resnets import DenseResidualNet
 from fm4ar.torchutils.weights import load_and_or_freeze_model_weights
+from fm4ar.nn.advanced import SiT
 
 
 def create_vectorfield_net(
@@ -54,6 +55,14 @@ def create_vectorfield_net(
                 output_dim=dim_output,
                 first_context_features=dim_first_glu,
                 second_context_features=dim_second_glu,
+                **network_kwargs,
+            )
+        case "SiT":
+            vectorfield_net = SiT(
+                input_shape=(dim_input,),
+                output_dim=dim_output,
+                context_dim_first=dim_first_glu,
+                context_dim_second=dim_second_glu,
                 **network_kwargs,
             )
         case _:  # pragma: no cover
