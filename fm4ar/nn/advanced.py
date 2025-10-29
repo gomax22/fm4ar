@@ -631,9 +631,6 @@ class SiT(nn.Module):
         ])
 
         # Output projection
-        self.final_layer = nn.Sequential(
-            
-        )
         self.output = FinalLayer(d_model, output_dim)
         self.initialize_weights()
 
@@ -646,6 +643,17 @@ class SiT(nn.Module):
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
         self.apply(_basic_init)
+
+        # Zero-out adaLN modulation layers in SiT blocks:
+        for layer in self.layers:
+            nn.init.constant_(layer.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(layer.adaLN_modulation[-1].bias, 0)
+
+        # Zero-out output layers:
+        nn.init.constant_(self.output.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.output.adaLN_modulation[-1].bias, 0)
+        nn.init.constant_(self.output.linear.weight, 0)
+        nn.init.constant_(self.output.linear.bias, 0)
 
 
     def forward(self, 
