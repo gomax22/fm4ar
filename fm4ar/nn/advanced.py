@@ -6,31 +6,96 @@ import torch.nn.functional as F
 # -----------------------------
 # RoPE utility
 # -----------------------------
-def make_frequencies_physical(d_head, lam_min=0.3, lam_max=2.4, use_log=True):
-    if use_log:
-        p_max = torch.log(torch.tensor(lam_max / lam_min))
-    else:
-        p_max = lam_max - lam_min
-    omega_max = 1.5 * math.pi / p_max
-    omega_min = 0.015 * math.pi / p_max
-    num_pairs = d_head // 2
-    r = (omega_max / omega_min) ** (1.0 / (num_pairs - 1))
-    freqs = torch.tensor([omega_min * (r ** i) for i in range(num_pairs)])
-    return freqs
+class RotaryPositionalEmbeddings(nn.Module):
 
-class RoPE(nn.Module):
-    def __init__(self, freqs):
+  def __init__(self, head_dim: int, base: int = 10_000):
+
+    super().__init__()
+    self.base = base
+    self.head_dim = head_dim
+    self.cos_cached = None
+    self.sin_cached = None
+
+  def _build_cache(self, x: torch.Tensor):
+
+    if self.cos_cached is not None and x.shape[0] <= self.cos_cached.shape[0]:
+      return
+
+    seq_len = x.shape[0]
+    theta = 1. / (self.base ** (torch.arange(0, self.head_dim, 2).float() / self.head_dim)).to(x.device) # THETA = 10,000^(-2*i/d) or 1/10,000^(2i/d)
+    seq_idx = torch.arange(seq_len, device=x.device).float().to(x.device) #Position Index -> [0,1,2...seq-1]
+    idx_theta = torch.einsum('n,d->nd', seq_idx, theta)  #Calculates m*(THETA) = [ [0, 0...], [THETA_1, THETA_2...THETA_d/2], ... [seq-1*(THETA_1), seq-1*(THETA_2)...] ]
+    idx_theta2 = torch.cat([idx_theta, idx_theta], dim=1) # [THETA_1, THETA_2...THETA_d/2] -> [THETA_1, THETA_2...THETA_d]
+    self.cos_cached = idx_theta2.cos()[:, None, None, :] #Cache [cosTHETA_1, cosTHETA_2...cosTHETA_d]
+    self.sin_cached = idx_theta2.sin()[:, None, None, :] #cache [sinTHETA_1, sinTHETA_2...sinTHETA_d]
+
+  def _neg_half(self, x: torch.Tensor):
+    d_2 = self.head_dim // 2 #
+    return torch.cat([-x[:, :, :, d_2:], x[:, :, :, :d_2]], dim=-1) # [x_1, x_2,...x_d] -> [-x_d/2, ... -x_d, x_1, ... x_d/2]
+
+  def forward(self, x: torch.Tensor):
+    self._build_cache(x)
+    neg_half_x = self._neg_half(x)
+    x_rope = (x * self.cos_cached[:x.shape[0]]) + (neg_half_x * self.sin_cached[:x.shape[0]]) # [x_1*cosTHETA_1 - x_d/2*sinTHETA_d/2, ....]
+    return x_rope
+     
+
+class WavelengthAwareRoPE(nn.Module):
+    """
+    Rotary Positional Embeddings that operate on *log-scaled physical wavelengths*.
+
+    Expected input:
+        positions = log(wavelength / min_wavelength)
+    """
+
+    def __init__(self, head_dim: int, base: float = 10_000.0):
         super().__init__()
-        self.register_buffer("freqs", freqs)
+        assert head_dim % 2 == 0, "RoPE dimension must be even."
+        self.head_dim = head_dim
+        self.base = base
+        self.cos_cached = None
+        self.sin_cached = None
 
-    def forward(self, X, positions):
-        B, N, D = X.shape
-        X2 = X.view(B, N, D // 2, 2)
-        angles = positions.unsqueeze(-1) * self.freqs.unsqueeze(0).unsqueeze(0)
-        cos, sin = angles.cos(), angles.sin()
-        x, y = X2[..., 0], X2[..., 1]
-        X_rot = torch.stack([x * cos - y * sin, x * sin + y * cos], dim=-1)
-        return X_rot.view(B, N, D)
+    def _compute_frequencies(self, device):
+        """Standard RoPE angular frequencies."""
+        return 1.0 / (self.base ** (torch.arange(0, self.head_dim, 2, device=device).float() / self.head_dim))
+
+    def _build_cache(self, positions: torch.Tensor):
+        """
+        Cache cos/sin values for given (log-scaled) wavelength positions.
+
+        Args:
+            positions: (B, N) or (N,) tensor of log(wavelength / min_wavelength)
+        """
+        device = positions.device
+        pos_flat = positions.view(-1)
+        theta = self._compute_frequencies(device)  # (d/2,)
+        idx_theta = torch.einsum('n,d->nd', pos_flat, theta)  # (N, d/2)
+        idx_theta2 = torch.cat([idx_theta, idx_theta], dim=-1)  # (N, d)
+        self.cos_cached = idx_theta2.cos()[:, None, None, :]  # (N, 1, 1, d)
+        self.sin_cached = idx_theta2.sin()[:, None, None, :]  # (N, 1, 1, d)
+
+    def _neg_half(self, x: torch.Tensor):
+        """Rotate feature halves: (x1, x2) → (-x2, x1)"""
+        d_2 = self.head_dim // 2
+        return torch.cat([-x[..., d_2:], x[..., :d_2]], dim=-1)
+
+    def forward(self, x: torch.Tensor, positions: torch.Tensor):
+        """
+        Args:
+            x: (B, H, N, D)
+            positions: (B, N) or (N,) log-scaled wavelength positions
+
+        Returns:
+            x_rope: same shape as x, rotated according to wavelength positions
+        """
+        # Build or refresh cache
+        self._build_cache(positions)
+        neg_half_x = self._neg_half(x)
+        cos = self.cos_cached[:x.shape[0]].to(x.device)
+        sin = self.sin_cached[:x.shape[0]].to(x.device)
+        return (x * cos) + (neg_half_x * sin)
+
 
 # -----------------------------
 # Dilated MHSA
@@ -65,10 +130,15 @@ class DilatedMHSABlock(nn.Module):
         k = k.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
         v = v.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
         
-        if self.rope is not None and positions is not None: 
-            pos_rep = positions.repeat_interleave(self.n_heads, dim=0) 
-            q = self.rope(q.reshape(B * self.n_heads, N, self.d_head), pos_rep) 
-            k = self.rope(k.reshape(B * self.n_heads, N, self.d_head), pos_rep) 
+        if self.rope is not None:
+            if isinstance(self.rope, RotaryPositionalEmbeddings):
+                q = self.rope(q) 
+                k = self.rope(k) 
+            if isinstance(self.rope, WavelengthAwareRoPE):
+                assert positions is not None, "Positions required for WavelengthAwareRoPE"
+                pos_rep = positions.repeat_interleave(self.n_heads, dim=0) 
+                q = self.rope(q, pos_rep) 
+                k = self.rope(k, pos_rep) 
             q = q.view(B, self.n_heads, N, self.d_head) 
             k = k.view(B, self.n_heads, N, self.d_head) 
             
@@ -148,12 +218,17 @@ class DilatedMHCABlock(nn.Module):
         v = v.view(B, N_k, self.n_heads, self.d_head).transpose(1, 2)
 
         # Apply RoPE (different lengths allowed)
-        if self.rope is not None and positions is not None:
-            q = self.rope(q.reshape(B * self.n_heads, N_q, self.d_head), positions.repeat_interleave(self.n_heads, dim=0))
-            if context_positions is not None:
-                k = self.rope(k.reshape(B * self.n_heads, N_k, self.d_head), context_positions.repeat_interleave(self.n_heads, dim=0))
-            else:
-                k = self.rope(k.reshape(B * self.n_heads, N_k, self.d_head), positions.repeat_interleave(self.n_heads, dim=0))
+        # Apply RoPE (different lengths allowed)
+        if self.rope is not None:
+            if isinstance(self.rope, RotaryPositionalEmbeddings):
+                q = self.rope(q)
+                k = self.rope(k)
+            if isinstance(self.rope, WavelengthAwareRoPE):
+                assert positions is not None, "Positions required for WavelengthAwareRoPE"
+
+                q = self.rope(q, positions)
+                k = self.rope(k, context_positions if context_positions is not None else positions)
+
             q = q.view(B, self.n_heads, N_q, self.d_head)
             k = k.view(B, self.n_heads, N_k, self.d_head)
 
@@ -384,6 +459,20 @@ def get_ffn(ffn_type, d_model, ffn_hidden_mult, ffn_dropout):
         return SwiGLUFFN(d_model, hidden_dim=ffn_hidden_mult*d_model, dropout=ffn_dropout)
 
 
+def build_rope(head_dim, rope_type="none", base=10_000):
+    """
+    Factory method to build RoPE module.
+    rope_type ∈ {"none", "standard", "wavelength"}
+    """
+    if rope_type == "none":
+        return None
+    elif rope_type == "standard":
+        return RotaryPositionalEmbeddings(head_dim, base=base)
+    elif rope_type == "wavelength":
+        return WavelengthAwareRoPE(head_dim, base=base)
+    else:
+        raise ValueError(f"Unknown rope_type: {rope_type}")
+
 # -----------------------
 # Modulation function for AdaLN-Zero
 # -----------------------
@@ -418,10 +507,15 @@ class ClassicMHSABlock(nn.Module):
         q = q.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
         k = k.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
         v = v.view(B, N, self.n_heads, self.d_head).transpose(1, 2) 
-        if self.rope is not None and positions is not None: 
-            pos_rep = positions.repeat_interleave(self.n_heads, dim=0) 
-            q = self.rope(q.reshape(B * self.n_heads, N, self.d_head), pos_rep) 
-            k = self.rope(k.reshape(B * self.n_heads, N, self.d_head), pos_rep) 
+        if self.rope is not None:
+            if isinstance(self.rope, RotaryPositionalEmbeddings):
+                q = self.rope(q) 
+                k = self.rope(k) 
+            if isinstance(self.rope, WavelengthAwareRoPE):
+                assert positions is not None, "Positions required for WavelengthAwareRoPE"
+                q = self.rope(q, positions) 
+                k = self.rope(k, positions) 
+
             q = q.view(B, self.n_heads, N, self.d_head) 
             k = k.view(B, self.n_heads, N, self.d_head) 
             
@@ -487,12 +581,15 @@ class ClassicMHCABlock(nn.Module):
         v = v.view(B, N_k, self.n_heads, self.d_head).transpose(1, 2)
 
         # Apply RoPE (different lengths allowed)
-        if self.rope is not None and positions is not None:
-            q = self.rope(q.reshape(B * self.n_heads, N_q, self.d_head), positions.repeat_interleave(self.n_heads, dim=0))
-            if context_positions is not None:
-                k = self.rope(k.reshape(B * self.n_heads, N_k, self.d_head), context_positions.repeat_interleave(self.n_heads, dim=0))
-            else:
-                k = self.rope(k.reshape(B * self.n_heads, N_k, self.d_head), positions.repeat_interleave(self.n_heads, dim=0))
+        if self.rope is not None:
+            if isinstance(self.rope, RotaryPositionalEmbeddings):
+                q = self.rope(q)
+                k = self.rope(k)
+            if isinstance(self.rope, WavelengthAwareRoPE):
+                assert positions is not None, "Positions required for WavelengthAwareRoPE"
+                q = self.rope(q, positions)
+                k = self.rope(k, context_positions if context_positions is not None else positions)
+
             q = q.view(B, self.n_heads, N_q, self.d_head)
             k = k.view(B, self.n_heads, N_k, self.d_head)
 
@@ -513,7 +610,7 @@ class ClassicMHCABlock(nn.Module):
 # SiT Block with optional AdaLN-Zero
 # -----------------------
 class SiTBlock(nn.Module):
-    def __init__(self, d_model, n_heads, use_rope=True, 
+    def __init__(self, d_model, n_heads, rope_type='standard', 
                  use_qk_norm=False, learnable_qk_scale=False, 
                  ffn_type='swiglu', ffn_hidden_mult=4.0, ffn_dropout=0.0, 
                  use_adaln=True):
@@ -526,10 +623,7 @@ class SiTBlock(nn.Module):
         self.post_ffn_rms = RMSNorm(d_model)
 
         self.final_norm = RMSNorm(d_model)
-        rope_module = None
-        if use_rope:
-            freqs = make_frequencies_physical(d_model // n_heads)
-            rope_module = RoPE(freqs)
+        rope_module = build_rope(head_dim=d_model // n_heads, rope_type=rope_type)
         self.attn = ClassicMHSABlock(d_model, n_heads, rope_module, use_qk_norm, learnable_qk_scale)
         self.mlp = get_ffn(ffn_type, d_model, ffn_hidden_mult, ffn_dropout)
 
@@ -583,7 +677,7 @@ class SiT(nn.Module):
                  d_model, n_heads, num_layers, n_channels,
                  ffn_type='swiglu', ffn_hidden_mult=4, ffn_dropout=0.0,
                  use_qk_norm=True, learnable_qk_scale=True,
-                 use_rope=True, use_adaln=True
+                 rope_type='standard', use_adaln=True
     ):
         super().__init__()
 
@@ -620,7 +714,7 @@ class SiT(nn.Module):
             SiTBlock(
                 d_model=d_model,
                 n_heads=n_heads,
-                use_rope=use_rope,
+                rope_type=rope_type,
                 use_qk_norm=use_qk_norm,
                 learnable_qk_scale=learnable_qk_scale,
                 ffn_type=ffn_type,
@@ -718,7 +812,7 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
                  patch_sizes=[16,32,64], strides=[1, 2, 4], dilations=[2, 4, 8], 
                  mhsa_block_type='dilated', mhca_block_type='dilated',
                  incremental_cross_attention=False, 
-                 use_ms_pos_embed=False, n_channels=1, use_rope=True, 
+                 use_ms_pos_embed=False, n_channels=1, rope_type='standard', 
                  use_qk_norm=True, learn_qk_scale=False, pre_rms=True, post_rms=True,
                  ffn_type='swiglu', ffn_hidden_mult=4, ffn_dropout=0.0,
                  fusion_type='cross_attention', fusion_hidden=512):
@@ -736,10 +830,7 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
 
         for patch_size, stride, dilation in zip(self.patch_sizes, self.strides, self.dilations):
             layers = nn.ModuleList()
-            rope_module = None
-            if use_rope:
-                freqs = make_frequencies_physical(d_model // n_heads)
-                rope_module = RoPE(freqs)
+            rope_module = build_rope(head_dim=d_model // n_heads, rope_type=rope_type)
             for _ in range(n_layers_per_scale):
                 mhsa = get_mhsa_block(
                     mhsa_block_type, d_model, n_heads, k, dilation, 
@@ -879,7 +970,6 @@ if __name__ == "__main__":
     B, C, N = 8, 3, 102400  # multi-channel spectrum
     x = torch.randn(B, C, N)
     wavelengths = torch.linspace(0.3, 2.4, N).unsqueeze(0).repeat(B, 1)
-
     encoder = HierarchicalMultiScaleSpectralEncoder(
         d_model=256,
         n_heads=8,
@@ -889,12 +979,12 @@ if __name__ == "__main__":
         strides=[256, 512, 1024, 2048],
         dilations=[2, 4, 8, 16],
         n_channels=C,
-        mhsa_block_type='dilated',
-        mhca_block_type='dilated',
+        mhsa_block_type='classic',
+        mhca_block_type='classic',
         incremental_cross_attention=True,
         fusion_type='concat',
         fusion_hidden=512,
-        use_rope=True,
+        rope_type='wavelength',
         use_ms_pos_embed=True,
         ffn_type='geglu',
         pre_rms=True,
@@ -925,7 +1015,7 @@ if __name__ == "__main__":
         use_qk_norm=True,
         learnable_qk_scale=True,
         use_adaln=True,
-        use_rope=True
+        rope_type='standard'
     )
     summary(model, input_data=[torch.randn(B, 512), torch.randn(B,512), torch.randn(B,512)], depth=6)
     out = model(torch.randn(B, 512), None, torch.randn(B,512))
