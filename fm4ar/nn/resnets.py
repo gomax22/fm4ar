@@ -186,14 +186,18 @@ class ResidualBlock(nn.Module):
                 torch.cat((temps, self.context_layer_1(first_context)), dim=1),
                 dim=1,
             )
+            # Residual connection
+            temps = inputs + temps
         
         if second_context is not None:
             temps = torch.nn.functional.glu(
                 torch.cat((temps, self.context_layer_2(second_context)), dim=1),
                 dim=1,
             )
-
-        return inputs + temps
+            # Residual connection
+            temps = inputs + temps
+        
+        return temps
 
 
 class DenseResidualNet(nn.Module):
