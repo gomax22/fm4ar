@@ -132,6 +132,120 @@ class LossInfo:
         )
         print(f"t_model = {tn:.1f} ms ({tn_avg:.1f} ms)", flush=True)
 
+import torch
+import torch.distributed as dist
+import time
+from typing import Literal
+
+
+class DistributedLossInfo(LossInfo):
+    """
+    A distributed version of LossInfo that keeps loss and timing
+    statistics consistent across all ranks in a multi-GPU (DDP) setup.
+    """
+
+    def __init__(
+        self,
+        epoch: int,
+        len_dataset: int,
+        batch_size: int,
+        mode: str = "Train",
+        print_freq: int = 10,
+        sync_times: bool = False,
+    ) -> None:
+        """
+        Initialize new DistributedLossInfo instance.
+
+        Args:
+            epoch: Current epoch (for print statements).
+            len_dataset: Length of the dataset (for print statements).
+            batch_size: Batch size (for print statements).
+            mode: Mode (for print statements).
+            print_freq: Print frequency (print every `N` batches).
+            sync_times: If True, synchronize timing statistics across ranks.
+        """
+        super().__init__(epoch, len_dataset, batch_size, mode, print_freq)
+        self.sync_times = sync_times
+
+    # ------------------------------------------------------------------
+    # Synchronization utilities
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_distributed() -> bool:
+        return dist.is_available() and dist.is_initialized()
+
+    def synchronize_loss(self) -> None:
+        """
+        Synchronize (reduce) the accumulated loss statistics across all ranks.
+        After synchronization, every rank has the *same* global average.
+        """
+        if not self._is_distributed():
+            return
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        loss_sum = torch.tensor(
+            [self.loss_tracker.sum], dtype=torch.float64, device=device
+        )
+        count_sum = torch.tensor(
+            [self.loss_tracker.count], dtype=torch.float64, device=device
+        )
+
+        # Sum across all ranks
+        dist.all_reduce(loss_sum, op=dist.ReduceOp.SUM)
+        dist.all_reduce(count_sum, op=dist.ReduceOp.SUM)
+
+        # Update tracker with global totals
+        self.loss_tracker.sum = loss_sum.item()
+        self.loss_tracker.count = count_sum.item()
+
+    def synchronize_times(self) -> None:
+        """
+        Optionally synchronize timing statistics across ranks.
+        This is usually less critical but useful for diagnostics.
+        """
+        if not self._is_distributed() or not self.sync_times:
+            return
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        for key in self.times:
+            avg = torch.tensor(
+                [self.times[key].get_avg()], dtype=torch.float64, device=device
+            )
+            dist.all_reduce(avg, op=dist.ReduceOp.AVG)
+            self.times[key].avg = avg.item()
+
+    def synchronize_all(self) -> None:
+        """
+        Perform full synchronization for both loss and timing stats.
+        """
+        self.synchronize_loss()
+        self.synchronize_times()
+
+    # ------------------------------------------------------------------
+    # Printing helpers (only rank 0 should print)
+    # ------------------------------------------------------------------
+
+    def print_info(self, batch_idx: int) -> None:
+        """
+        Override print_info to ensure only rank 0 prints to stdout.
+        """
+        if not self._is_distributed():
+            super().print_info(batch_idx)
+            return
+
+        if dist.get_rank() == 0:
+            super().print_info(batch_idx)
+
+    def print_final(self) -> None:
+        """
+        Print the final average loss (only rank 0).
+        """
+        if not self._is_distributed() or dist.get_rank() == 0:
+            print(
+                f"[{self.mode}] Epoch {self.epoch:3d} — Global average loss: {self.get_avg():.6f}",
+                flush=True,
+            )
 
 class RuntimeLimits:
     """
