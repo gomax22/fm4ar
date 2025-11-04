@@ -130,7 +130,7 @@ def merge_log_probs_true_thetas(config: dict, output_dir: Path) -> Optional[pd.D
     return merge_experiment_results(
         config=config,
         output_dir=output_dir,
-        relative_file_path="evaluation/log_probs/log_probs_very_short_summary.csv",
+        relative_file_path="evaluation/log-probs/log_probs_very_short_summary.csv",
         output_filename="log_probs_very_short_summary.csv",
         description="log probs true thetas"
     )
