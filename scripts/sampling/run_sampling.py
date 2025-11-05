@@ -3,100 +3,64 @@ Run sampling using a trained ML model: either a "proper"
 posterior model (FMPE or NPE)
 """
 
-import argparse
-import os
-import sys
 import time
-from pathlib import Path
-from socket import gethostname
-
 import torch
+import torch.multiprocessing as mp
 import numpy as np
 
+from math import ceil
 from fm4ar.sampling.config import (
-    SamplingConfig,
     load_config,
 )
 from fm4ar.sampling.args import get_cli_arguments
 from fm4ar.sampling.proposals import draw_samples
 
 from fm4ar.torchutils.general import get_cuda_info
-from fm4ar.utils.hdf import load_from_hdf, save_to_hdf
-from fm4ar.utils.htcondor import (
-    DAGManFile,
-    HTCondorConfig,
-    check_if_on_login_node,
-    condor_submit_dag,
-    create_submission_file,
+from fm4ar.utils.hdf import (
+    load_from_hdf, 
+    save_to_hdf, 
+    merge_hdf_files, 
 )
 from fm4ar.utils.npy import save_to_npy
-from fm4ar.utils.paths import expand_env_variables_in_path
 
-def prepare_and_launch_dag(
-    args: argparse.Namespace,
-    config: SamplingConfig,
-) -> None:
+# -------------------------------------------------------------------------
+# Define worker function at module level
+# -------------------------------------------------------------------------
+def run_on_gpu(rank, args, config, job_ids):
     """
-    Prepare and launch the DAGMan file for running the importance
-    sampling workflow on HTCondor.
-
-    Args:
-        args: The command line arguments.
-        config: The importance sampling configuration.
+    Run one sampling job on a given GPU.
+    Each spawn round gets its own subset of jobs.
     """
+    n_gpus = torch.cuda.device_count()
+    gpu_id = rank % n_gpus
+    torch.cuda.set_device(gpu_id)
 
-    # Initialize a new DAGMan file
-    dag = DAGManFile()
+    job_id = job_ids[rank]
+    print(f"[GPU {gpu_id}] Starting sampling job {job_id}")
 
-    # Add jobs for the different stages of the importance sampling workflow
-    for i, (stage, depends_on) in enumerate(
-        [
-            ("draw_samples", None),
-            ("export_samples", ["draw_samples"]),
-        ],
-        start=1,
-    ):
+    args.job = job_id
 
-        # Collect HTCondorSettings for the stage
-        htcondor_config: HTCondorConfig = getattr(config, stage).htcondor
-        htcondor_config.arguments = [
-            Path(__file__).resolve().as_posix(),
-            f"--experiment-dir {args.experiment_dir}",
-            f"--working-dir {args.working_dir}",
-            f"--stage {stage}",
-        ]
+    output_file_path = args.experiment_dir / f"samples-{job_id:04d}.hdf"
+    if output_file_path.exists():
+        print(f"[GPU {gpu_id}] {output_file_path.name} exists already, skipping.\n")
+        return
 
-        # For the stages that require parallel processing, add the job number
-        # and the total number of parallel jobs as arguments; if we just take
-        # this from the config file, things break down in non-parallel mode
-        if stage in ("draw_samples"):
-            htcondor_config.arguments += [
-                "--job $(Process)",
-                f"--n-jobs {htcondor_config.queue}",
-            ]
+    results = draw_samples(args=args, config=config)
 
-        # Create submission file
-        file_path = create_submission_file(
-            htcondor_config=htcondor_config,
-            experiment_dir=args.working_dir,
-            file_name=f"{i}__{stage}.sub"
-        )
+    # Convert some arrays to float32 to save space
+    for key in ("samples", "log_prob_samples", "log_probs_true_thetas"):
+        results[key] = results[key].astype(np.float32)
 
-        # Add the job to the DAGMan file
-        dag.add_job(
-            name=stage,
-            file_path=file_path,
-            bid=htcondor_config.bid,
-            depends_on=depends_on,
-        )
+    print("\nSaving results to HDF...", end=" ", flush=True)
+    save_to_hdf(
+        file_path=output_file_path,
+        samples=results["samples"],
+        log_prob_samples=results["log_prob_samples"],
+        log_probs_true_thetas=results["log_probs_true_thetas"],
+    )
 
-    # Save the DAGMan file
-    file_path = args.working_dir / "0__sampling.dag"
-    dag.save(file_path=file_path)
-
-    # Submit the DAGMan file to HTCondor
-    condor_submit_dag(file_path=file_path, verbose=True)
-
+    print(f"[GPU {gpu_id}] Finished job {job_id}, saved to {output_file_path}")
+    return
 
 if __name__ == "__main__":
 
@@ -114,71 +78,86 @@ if __name__ == "__main__":
     if not args.experiment_dir.exists():
         raise FileNotFoundError(f"Directory not found: {args.experiment_dir}")
 
-    # Ensure that we do not run compute-heavy jobs on the login node
-    check_if_on_login_node(start_submission=args.start_submission)
-    print("Running on host:", gethostname(), "\n", flush=True)
-
     # Load the importance sampling config
     config = load_config(experiment_dir=args.experiment_dir)
 
     # -------------------------------------------------------------------------
-    # If --start-submission: Create DAG file, launch job, and exit
-    # -------------------------------------------------------------------------
-
-    if args.start_submission:
-        prepare_and_launch_dag(args=args, config=config)
-        sys.exit(0)
-
-    # -------------------------------------------------------------------------
     # Stage 1: Draw samples from the proposal distribution
     # -------------------------------------------------------------------------
-
     if args.stage == "draw_samples" or args.stage is None:
 
         print(80 * "-", flush=True)
         print("(1) Draw samples from proposal distribution", flush=True)
         print(80 * "-" + "\n", flush=True)
 
-        # Check if the output file already exists
-        output_file_path = (
-            args.experiment_dir / "samples.hdf"
+        # Detect GPUs
+        n_gpus = torch.cuda.device_count()
+        if n_gpus == 0:
+            raise RuntimeError("No GPUs available!")
+
+        print(f"Detected {n_gpus} GPUs.")
+        # Document the CUDA setup
+        print("CUDA information:")
+        for key, value in get_cuda_info().items():
+            print(f"  {key + ':':<16}{value}")
+        print()
+
+        # Define total jobs
+        n_jobs = args.n_jobs
+        all_job_ids = list(range(n_jobs))
+        n_rounds = ceil(n_jobs / n_gpus)
+        print(f"Total jobs: {n_jobs} | Running in {n_rounds} rounds of {n_gpus} GPUs each.\n")
+
+        # Run sampling in rounds
+        for round_idx in range(n_rounds):
+            start = round_idx * n_gpus
+            end = min(start + n_gpus, n_jobs)
+            job_ids = all_job_ids[start:end]
+
+            print(f"\n=== Round {round_idx + 1}/{n_rounds}: Running jobs {job_ids} ===\n")
+            mp.spawn(run_on_gpu, args=(args, config, job_ids), nprocs=len(job_ids), join=True)
+
+
+    # -------------------------------------------------------------------------
+    # Stage 2: Merge samples from the proposal distribution
+    # -------------------------------------------------------------------------
+
+    if args.stage == "merge_samples" or args.stage is None:
+
+        print(80 * "-", flush=True)
+        print("(2) Merge samples from posterior distribution", flush=True)
+        print(80 * "-" + "\n", flush=True)
+
+        print("Merging HDF files:", flush=True)
+        merge_hdf_files(
+            target_dir=args.experiment_dir,
+            name_pattern="samples-*.hdf",
+            output_file_path=args.experiment_dir / "samples.hdf",
+            keys=["samples", "log_prob_samples", "log_probs_true_thetas"],
+            singleton_keys=(),
+            delete_after_merge=config.merge_samples.delete_after_merge,
+            show_progressbar=config.merge_samples.show_progressbar,
+            axis=1,
         )
+        print("\n")
 
-        if output_file_path.exists():
-            print("Samples exist already, skipping!\n")
+        print("Loading merged HDF file...", flush=True)
+        data = load_from_hdf(
+            file_path=args.experiment_dir / "samples.hdf",
+            keys=["samples", "log_prob_samples", "log_probs_true_thetas"],
+        )
+        print("Done.\n")
 
-        # Otherwise, we need to draw the proposal samples
-        else:
+        print("Converting merged HDF to NPY files...", flush=True)
+        save_to_npy(
+            output_dir=args.experiment_dir,
+            samples=data["samples"],
+            log_prob_samples=data["log_prob_samples"],
+            log_probs_true_thetas=data["log_probs_true_thetas"],
+        )
+        print("Done.\n")
 
-            # Document the CUDA setup
-            print("CUDA information:")
-            for key, value in get_cuda_info().items():
-                print(f"  {key + ':':<16}{value}")
-            print()
-
-            # Draw samples (this comes with its own progress bar)
-            results = draw_samples(args=args, config=config)
-
-            # Convert some arrays to float32 to save space
-            for key in ("samples", "log_prob_samples"):
-                results[key] = results[key].astype(np.float32)
-
-            print("\nSaving results to HDF...", end=" ", flush=True)
-            save_to_hdf(
-                file_path=output_file_path,
-                samples=results["samples"],
-                log_prob_samples=results["log_prob_samples"],
-                log_probs_true_thetas=results["log_probs_true_thetas"],
-            )
-            print("\nSaving results to NPY...", end=" ", flush=True)
-            save_to_npy(
-                output_dir=args.experiment_dir,
-                samples=results["samples"],
-                log_prob_samples=results["log_prob_samples"],
-                log_probs_true_thetas=results["log_probs_true_thetas"],
-            )
-            print("Done!\n\n")
-
+        
     # -------------------------------------------------------------------------
     # Postliminaries
     # -------------------------------------------------------------------------
