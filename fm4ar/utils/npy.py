@@ -1,5 +1,5 @@
 """
-Utility functions for working with HDF5 files.
+Utility functions for working with NPY files.
 """
 
 import torch
@@ -21,21 +21,31 @@ def save_to_npy(
         log_probs_true_thetas: Log probabilities of the true theta values.
     """
         
+    # -------------------------------------------------------------------------
+    # Save base arrays
+    # -------------------------------------------------------------------------
     np.save(output_dir / "posterior_distribution.npy", samples)
     np.save(output_dir / "posterior_log_probs.npy", log_prob_samples)
     np.save(output_dir / "posterior_log_probs_true_thetas.npy", log_probs_true_thetas)
 
-    # Find the sample with the highest log probability for each test sample
+    # -------------------------------------------------------------------------
+    # Find the sample with the highest log probability per test sample
+    # -------------------------------------------------------------------------
     log_probs = torch.from_numpy(log_prob_samples)
     posterior_samples = torch.from_numpy(samples)
+
+    # Get best index for each test case
     best = torch.argmax(log_probs, dim=1)
     num_test_samples = posterior_samples.shape[0]
+
     top_samples = posterior_samples[torch.arange(num_test_samples), best].numpy()
     top_log_probs = log_probs[torch.arange(num_test_samples), best].numpy().reshape(-1, 1)
 
-    # Save the indices and the samples
+    # -------------------------------------------------------------------------
+    # Save "best" sample info
+    # -------------------------------------------------------------------------
     np.save(output_dir / "posterior_top_log_probs.npy", top_log_probs)
-    np.save(output_dir / "posterior_top_samples_indices.npy", best)
+    np.save(output_dir / "posterior_top_samples_indices.npy", best.numpy())
     np.save(output_dir / "posterior_top_samples.npy", top_samples)
 
     return None

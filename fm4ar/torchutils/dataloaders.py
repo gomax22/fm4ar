@@ -6,7 +6,7 @@ import platform
 from typing import Literal
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 from fm4ar.utils.multiproc import get_number_of_available_cores
 
@@ -19,6 +19,7 @@ def build_dataloader(
     drop_last: bool,
     pin_memory: bool = True,
     random_seed: int = 42,
+    sampler: Sampler | None = None,
 ) -> DataLoader:
     """
     Build a `DataLoader` for the given `dataset`.
@@ -32,6 +33,7 @@ def build_dataloader(
             `batch_size`.
         pin_memory: Whether to use pinned memory for the `DataLoader`.
         random_seed: Random seed for reproducibility.
+        sampler: Optional sampler for the `DataLoader`.
 
     Returns:
         The `DataLoader`.
@@ -47,6 +49,7 @@ def build_dataloader(
         num_workers=n_workers,
         persistent_workers=(n_workers > 0),
         generator=torch.Generator().manual_seed(random_seed),
+        sampler=sampler,
     )
 
     return dataloader
@@ -57,6 +60,7 @@ def build_dataloaders(
     batch_size: int,
     n_workers: int,
     random_seed: int = 42,
+    sampler: Sampler | None = None,
 ) -> tuple[DataLoader, DataLoader]:
     """
     Build train and validation `DataLoaders` for the given `dataset`.
@@ -85,6 +89,7 @@ def build_dataloaders(
         drop_last=False,
         pin_memory=True,
         random_seed=random_seed + 1,
+        sampler=sampler,
     )
 
     # Build the validation loader
@@ -96,6 +101,7 @@ def build_dataloaders(
         drop_last=False,
         pin_memory=True,
         random_seed=random_seed + 2,
+        sampler=sampler,
     )
 
     return train_loader, valid_loader

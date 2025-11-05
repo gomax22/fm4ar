@@ -44,14 +44,10 @@ def get_cli_arguments() -> argparse.Namespace:
         type=str,
         choices=[
             "draw_samples",
+            "merge_samples"
         ],
         default=None,
         help="Stage of the importance sampling workflow that should be run.",
-    )
-    parser.add_argument(
-        "--start-submission",
-        action="store_true",
-        help="If True, create a submission file and launch a job.",
     )
     args = parser.parse_args()
 

@@ -154,17 +154,22 @@ def draw_samples_from_ml_model(
         print_freq=1,
     )
 
+    example_batch = next(iter(test_loader))
+    theta_example, _, _ = move_batch_to_device(example_batch, model.device)
+    n_test_batches = len(test_loader)
+    batch_size = theta_example.shape[0]
+    theta_dim = theta_example.shape[1]
+
+    samples = torch.zeros((len(test_loader.dataset), n_samples, theta_dim), dtype=torch.float32)
+    log_prob_samples = torch.zeros((len(test_loader.dataset), n_samples), dtype=torch.float32)
+    log_probs_true_thetas = torch.zeros((len(test_loader.dataset), 1), dtype=torch.float32)
+
     # Determine the chunk sizes: Every chunk should have `chunk_size` samples,
     # except for the last one, which may have fewer samples.
     chunk_sizes = np.diff(np.r_[0: n_samples: chunk_size, n_samples])
 
     # Draw samples from the model posterior ("proposal distribution")
     print("Drawing samples from the model posterior:", flush=True)
-
-    # Lists to store all samples and log-probs
-    samples = []
-    log_prob_samples = []
-    log_probs_true_thetas = []
 
     # -------------------------------------------------------------------------
     # Compute test loss
@@ -174,6 +179,8 @@ def draw_samples_from_ml_model(
     torch.cuda.empty_cache()
 
     with torch.no_grad() and autocast(enabled=use_amp):
+        start_idx = 0
+
         # Iterate over the batches
         batch: dict[str, torch.Tensor]
         for batch_idx, batch in enumerate(test_loader):
@@ -182,7 +189,8 @@ def draw_samples_from_ml_model(
 
             # Move data to device
             theta, context, aux_data = move_batch_to_device(batch, model.device)
-
+            bsz = theta.shape[0]
+            
             # Compute test loss
             loss = model.loss(
                 theta=theta,
@@ -204,28 +212,18 @@ def draw_samples_from_ml_model(
             # Compute log prob of true theta under the model
             # -------------------------------------------------------------------------
             log_prob_theta_true = model.log_prob_batch(
-                theta=(
-                    theta
-                    .float()
-                    .reshape(1, -1)
-                ),
-                context={
-                    k: v.repeat(1, 1)
-                    for k, v in context.items()
-                },
-                aux_data=(
-                    aux_data
-                    .float()
-                    .reshape(1, -1) if aux_data is not None else None
-                ),
+                theta=theta.float(),
+                context=context,
+                aux_data=aux_data.float() if aux_data is not None else None,
                 **model_kwargs,
-            ).detach().cpu().numpy().flatten()
-            log_probs_true_thetas.append(log_prob_theta_true)
+            ).detach().cpu()
 
+
+            log_probs_true_thetas[start_idx:start_idx + bsz, 0] = log_prob_theta_true
 
             # Initialize lists to store the samples and log-probs for this batch
-            samples_chunks = []
-            log_prob_chunks = []
+            all_samples = []
+            all_log_probs = []
 
             for n in chunk_sizes:
 
@@ -234,48 +232,51 @@ def draw_samples_from_ml_model(
                 # Draw samples and corresponding log-probs from the model
                 chunk = model.sample_and_log_prob_batch(
                     context={
-                        k: v.repeat(n, 1)
+                        k: v.repeat_interleave(n, dim=0)
                         for k, v in context.items()
                     },
                     aux_data=(
-                        aux_data
-                        .repeat(n, 1) if aux_data is not None else None
+                        aux_data.repeat_interleave(n, dim=0) 
+                        if aux_data is not None else None
                     ),
                     **model_kwargs,
                 )
 
-                # Inverse-transform the theta samples and store the chunks
-                samples_chunks.append(
+                # Reshape back to [batch_size, n, theta_dim]
+                all_samples.append(
                     test_loader
                     .dataset
                     .theta_scaler
                     .inverse_tensor(chunk[0].detach().cpu())
-                    .numpy()
+                    .view(bsz, n, theta_dim)
                 )
-                log_prob_chunks.append(chunk[1].detach().cpu().numpy())
+                all_log_probs.append(
+                    chunk[1]
+                    .detach()
+                    .cpu()
+                    .view(bsz, n)
+                )
+
                 del chunk
 
-            # Combine all chunks for this batch and store them in the main lists
-            samples.append(np.concatenate(samples_chunks, axis=0))
-            log_prob_samples.append(np.concatenate(log_prob_chunks, axis=0))
+            # Concatenate across chunks -> [batch_size, n_samples, ...]
+            batch_samples = torch.cat(all_samples, dim=1)
+            batch_log_probs = torch.cat(all_log_probs, dim=1)
+
+            # Store into preallocated arrays
+            samples[start_idx:start_idx + bsz] = batch_samples
+            log_prob_samples[start_idx:start_idx + bsz] = batch_log_probs
+
+            start_idx += bsz
 
     print(flush=True)
     print("Done!\n")
 
-
-    # Combine all chunks into a single numpy array
-    samples = np.stack(samples, axis=0)
-    log_prob_samples = np.stack(log_prob_samples, axis=0)
-    log_probs_true_thetas = np.concatenate(log_probs_true_thetas, axis=0).reshape(-1, 1)
-
-    # Select the average validation loss
-    avg_loss = loss_info.get_avg()
-
     return {
-        "samples": samples,
-        "log_prob_samples": log_prob_samples,
-        "log_probs_true_thetas": log_probs_true_thetas,
-        "avg_loss": avg_loss,
+        "samples": samples.numpy(),
+        "log_prob_samples": log_prob_samples.numpy(),
+        "log_probs_true_thetas": log_probs_true_thetas.numpy(),
+        "avg_loss": loss_info.get_avg(),
     }
 
 

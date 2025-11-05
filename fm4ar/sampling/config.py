@@ -10,9 +10,6 @@ from typing_extensions import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from yaml import safe_load
 
-from fm4ar.utils.htcondor import HTCondorConfig
-
-
 class DrawSamplesConfig(BaseModel):
     """
     Configuration for the "draw proposal samples" stage.
@@ -64,7 +61,21 @@ class DrawSamplesConfig(BaseModel):
         default=42,
         description="Random seed for the data loaders.",
     )
-    htcondor: HTCondorConfig
+
+
+class MergeSamplesConfig(BaseModel):
+    """
+    Configuration for the "merge samples" stage.
+    """
+
+    delete_after_merge: bool = Field(
+        default=True,
+        description="Whether to delete the source HDF files after merging.",
+    )
+    show_progressbar: bool = Field(
+        default=True,
+        description="Whether to show a progress bar during merging.",
+    )
 
 
 class SamplingConfig(BaseModel):
@@ -99,6 +110,7 @@ class SamplingConfig(BaseModel):
 
     # Configuration for the individual stages
     draw_samples: DrawSamplesConfig
+    merge_samples: MergeSamplesConfig
 
 def load_config(
     experiment_dir: Path,
