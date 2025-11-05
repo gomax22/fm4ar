@@ -62,7 +62,7 @@ def merge_experiment_results(
 
         df = pd.read_csv(file_path)
         header_row = pd.DataFrame(
-            [[f"--- {exp_name} ---"] + [None] * (len(df.columns) - 1)],
+            [[f"--- {exp_name} ---"] + ["-"] * (len(df.columns) - 1)],
             columns=df.columns
         )
         df = pd.concat([header_row, df], ignore_index=True)
