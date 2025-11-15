@@ -105,6 +105,23 @@ def merge_regression_metrics_all_samples(config: dict, output_dir: Path) -> Opti
         description="regression metrics all samples"
     )
 
+def merge_sklearn_regression_metrics_dap(config: dict, output_dir: Path) -> Optional[pd.DataFrame]:
+    return merge_experiment_results(
+        config=config,
+        output_dir=output_dir,
+        relative_file_path="evaluation/regression/sklearn_regression_metrics_dap.csv",
+        output_filename="sklearn_regression_metrics_dap.csv",
+        description="sklearn regression metrics DAP"
+    )
+
+def merge_sklearn_regression_metrics_all_samples(config: dict, output_dir: Path) -> Optional[pd.DataFrame]:
+    return merge_experiment_results(
+        config=config,
+        output_dir=output_dir,
+        relative_file_path="evaluation/regression/sklearn_regression_metrics_all_samples.csv",
+        output_filename="sklearn_regression_metrics_all_samples.csv",
+        description="sklearn regression metrics all samples"
+    )
 
 def merge_calibration_metrics_summary(config: dict, output_dir: Path) -> Optional[pd.DataFrame]:
     return merge_experiment_results(
@@ -176,9 +193,16 @@ if __name__ == "__main__":
         config, 
         output_dir
     )
-
     merged_df = merge_regression_metrics_all_samples(
         config, 
+        output_dir
+    )
+    merged_df = merge_sklearn_regression_metrics_dap(
+        config,
+        output_dir
+    )
+    merged_df = merge_sklearn_regression_metrics_all_samples(
+        config,
         output_dir
     )
 

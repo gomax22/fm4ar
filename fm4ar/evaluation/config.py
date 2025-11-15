@@ -80,7 +80,7 @@ class LogProbsConfig(BaseModel):
     """
     key: str = Field(
         ...,
-        description="Key for accessing log probabilities in the data.",
+        description="Placeholder key for log probability evaluation.",
     )
 
 class DrawCornerPlotsConfig(BaseModel):

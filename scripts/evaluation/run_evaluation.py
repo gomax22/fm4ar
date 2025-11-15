@@ -33,6 +33,7 @@ from fm4ar.evaluation.coverage import perform_coverage_analysis
 from fm4ar.evaluation.regression import (
     calculate_errors,
     compute_regression_metrics_from_errors,
+    compute_regression_metrics_using_scikit_learn,
     save_regression_metrics_to_csv,
     save_regression_errors_to_csv,
     make_violin_plots_of_errors,
@@ -82,13 +83,31 @@ def run_regression_metrics(
         args.experiment_dir / 'posterior_top_samples.npy'
     )
     print("Done!", flush=True)
-
+    # posterior_samples[..., 0] = np.clip(
+    #     posterior_samples[..., 0], 
+    #     a_min=1, 
+    #     a_max=None
+    # )
+    # posterior_samples[..., 0] = np.log10(posterior_samples[..., 0])
+    # top_samples[..., 0] = np.log10(top_samples[..., 0])
 
     # Load thetas
     print("Loading test dataset...", end=' ', flush=True)
     _, _, test_dataset = load_dataset(config=experiment_config)
+    # train_dataset, _, test_dataset = load_dataset(config=experiment_config)
     thetas = test_dataset.get_parameters()
     print("Done!", flush=True)
+
+    # posterior_samples[..., 0] = np.clip(
+    #     posterior_samples[..., 0], 
+    #     a_min=train_dataset.get_parameters().min(axis=0)[0], 
+    #     a_max=None
+    # )
+    # top_samples[..., 0] = np.clip(
+    #     top_samples[..., 0], 
+    #     a_min=train_dataset.get_parameters().min(axis=0)[0], 
+    #     a_max=None
+    # )
 
     # compute squared and absolute errors
     print("Calculating errors...", end=' ', flush=True)
@@ -133,9 +152,27 @@ def run_regression_metrics(
     )
     print("Done!", flush=True)
 
+    # compute metrics using scikit-learn
+    print("Computing regression metrics using scikit-learn...", end=' ', flush=True)
+    sk_metrics = compute_regression_metrics_using_scikit_learn(
+        thetas,
+        posterior_samples,
+        top_samples,
+    )
+    print("Done!", flush=True)
+
+    # save metrics to csv
+    print("Saving scikit-learn regression metrics to CSV...", end=' ', flush=True)
+    save_regression_metrics_to_csv(
+        metrics=sk_metrics,
+        output_dir=output_dir,
+        labels=test_dataset.get_parameters_labels(),
+        prefix="sklearn_",
+    )
+
     del posterior_samples, thetas, test_dataset, experiment_config
 
-    return metrics
+    return metrics, sk_metrics
 
 
 
@@ -162,14 +199,28 @@ def run_calibration_metrics(
         args.experiment_dir / 'posterior_distribution.npy'
     )
     print("Done!", flush=True)
+    # posterior_samples[..., 0] = np.clip(
+    #     posterior_samples[..., 0], 
+    #     a_min=1, 
+    #     a_max=None
+    # )
+    # posterior_samples[..., 0] = np.log10(posterior_samples[..., 0])
+
 
 
     # Load thetas
     print("Loading test dataset...", end=' ', flush=True)
     _, _, test_dataset = load_dataset(config=experiment_config)
+    # train_dataset, _, test_dataset = load_dataset(config=experiment_config)
     thetas = test_dataset.get_parameters()
     print("Done!", flush=True)
-    
+
+    # posterior_samples[..., 0] = np.clip(
+    #     posterior_samples[..., 0], 
+    #     a_min=train_dataset.get_parameters().min(axis=0)[0], 
+    #     a_max=None
+    # )
+
     # perform one-dimensional sbc ranking
     # multi-dimensional sbc requires log probs of reference samples
     print("Running simulation-based calibration...", end=' ', flush=True)
@@ -303,12 +354,27 @@ def run_coverage_analysis(
         args.experiment_dir / 'posterior_distribution.npy'
     )
     print("Done!", flush=True)
+    # posterior_samples[..., 0] = np.clip(
+    #     posterior_samples[..., 0], 
+    #     a_min=1, 
+    #     a_max=None
+    # )
+    # posterior_samples[..., 0] = np.log10(posterior_samples[..., 0])
+
 
     # Load thetas
     print("Loading test dataset...", end=' ', flush=True)
     _, _, test_dataset = load_dataset(config=experiment_config)
+    # train_dataset, _, test_dataset = load_dataset(config=experiment_config)
     thetas = test_dataset.get_parameters()
     print("Done!", flush=True)
+
+    # posterior_samples[..., 0] = np.clip(
+    #     posterior_samples[..., 0], 
+    #     a_min=train_dataset.get_parameters().min(axis=0)[0], 
+    #     a_max=None
+    # )
+
 
     # perform coverage analysis
     print("Performing coverage analysis...", end=' ', flush=True)

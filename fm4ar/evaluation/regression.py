@@ -12,6 +12,13 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import List
 
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    median_absolute_error,
+    root_mean_squared_error,
+)
+
 def make_violin_plot(
     metrics: dict,
     output_fname: Path,
@@ -111,6 +118,150 @@ def make_violin_plots_of_errors(
             fontsize=fontsize,
             y_scale=y_scale 
         )
+
+
+def compute_regression_metrics_using_scikit_learn(
+    thetas:  np.ndarray,
+    posterior_samples: np.ndarray,
+    dap_samples: np.ndarray | None = None,
+) -> None:
+    
+    num_samples, num_repeats, _ = posterior_samples.shape
+    mae_s, mse_s, rmse_s, medae_s = [], [], [], []
+
+    for s in range(num_samples):
+        yp = posterior_samples[s, :, :]
+        yt = thetas[s, :][np.newaxis, :].repeat(num_repeats, axis=0)
+        mae_s.append(mean_absolute_error(yt, yp, multioutput='raw_values'))
+        mse_s.append(mean_squared_error(yt, yp, multioutput='raw_values'))
+        rmse_s.append(root_mean_squared_error(yt, yp, multioutput='raw_values'))
+        medae_s.append(median_absolute_error(yt, yp, multioutput='raw_values'))
+
+    # Stack → shape: (num_samples, num_targets)
+    mae_s   = np.stack(mae_s)
+    mse_s   = np.stack(mse_s)
+    rmse_s  = np.stack(rmse_s)
+    medae_s = np.stack(medae_s)
+
+
+    dist_metrics = {
+        'per_target': {
+            'mse': {
+                'mean': mse_s.mean(0),
+                'std':  mse_s.std(0),
+                'min': mse_s.min(0),
+                'max': mse_s.max(0),
+                'median': np.median(mse_s, axis=0),
+            },
+            'mae': {
+                'mean': mae_s.mean(0),
+                'std':  mae_s.std(0),
+                'min': mae_s.min(0),
+                'max': mae_s.max(0),
+                'median': np.median(mae_s, axis=0),
+            },
+            'rmse': {
+                'mean': rmse_s.mean(0),
+                'std':  rmse_s.std(0),
+                'min': rmse_s.min(0),
+                'max': rmse_s.max(0),
+                'median': np.median(rmse_s, axis=0),
+            },
+            'median_ae': {
+                'mean': medae_s.mean(0),
+                'std':  medae_s.std(0),
+                'min': medae_s.min(0),
+                'max': medae_s.max(0),
+                'median': np.median(medae_s, axis=0),
+            },
+        },
+        'per_sample': {
+            'mse': {
+                'mean': mse_s.mean(1),
+                'std':  mse_s.std(1),
+                'min': mse_s.min(1),
+                'max': mse_s.max(1),
+                'median': np.median(mse_s, axis=1),
+            },
+            'mae': {
+                'mean': mae_s.mean(1),
+                'std':  mae_s.std(1),
+                'min': mae_s.min(1),
+                'max': mae_s.max(1),
+                'median': np.median(mae_s, axis=1),
+            },
+            'rmse': {
+                'mean': rmse_s.mean(1),
+                'std':  rmse_s.std(1),
+                'min': rmse_s.min(1),
+                'max': rmse_s.max(1),
+                'median': np.median(rmse_s, axis=1),
+            },
+            'median_ae': {
+                'mean': medae_s.mean(1),
+                'std':  medae_s.std(1),
+                'min': medae_s.min(1),
+                'max': medae_s.max(1),
+                'median': np.median(medae_s, axis=1),
+            },
+        }
+    }
+
+    dap_metrics = None
+    if dap_samples is not None:
+            
+        # Now do it for DAP samples
+        mae_s, mse_s, rmse_s, medae_s = [], [], [], []
+
+        for s in range(num_samples):
+            yp = dap_samples[s, :][np.newaxis, :]
+            yt = thetas[s, :][np.newaxis, :]
+            mae_s.append(mean_absolute_error(yt, yp, multioutput='raw_values'))
+            mse_s.append(mean_squared_error(yt, yp, multioutput='raw_values'))
+            rmse_s.append(root_mean_squared_error(yt, yp, multioutput='raw_values'))
+            medae_s.append(median_absolute_error(yt, yp, multioutput='raw_values'))
+
+        # Stack → shape: (num_samples, num_targets)
+        mae_s   = np.stack(mae_s)
+        mse_s   = np.stack(mse_s)
+        rmse_s  = np.stack(rmse_s)
+        medae_s = np.stack(medae_s)
+
+        dap_metrics = {
+            'mse': {
+                'mean': mse_s.mean(0),
+                'std':  mse_s.std(0),
+                'min': mse_s.min(0),
+                'max': mse_s.max(0),
+                'median': np.median(mse_s, axis=0),
+            },
+            'mae': {
+                'mean': mae_s.mean(0),
+                'std':  mae_s.std(0),
+                'min': mae_s.min(0),
+                'max': mae_s.max(0),
+                'median': np.median(mae_s, axis=0),
+            },
+            'rmse': {
+                'mean': rmse_s.mean(0),
+                'std':  rmse_s.std(0),
+                'min': rmse_s.min(0),
+                'max': rmse_s.max(0),
+                'median': np.median(rmse_s, axis=0),
+            },
+            'median_ae': {
+                'mean': medae_s.mean(0),
+                'std':  medae_s.std(0),
+                'min': medae_s.min(0),
+                'max': medae_s.max(0),
+                'median': np.median(medae_s, axis=0),
+            },
+        }
+
+    return {
+        'distribution_metrics': dist_metrics,
+        'dap_metrics': dap_metrics
+    }
 
     
 def compute_regression_metrics_from_errors(
@@ -286,6 +437,7 @@ def save_metrics_to_csv(
     output_dir: Path,
     labels: List[str],
     dap: bool = False,
+    prefix: str = ''
 ) -> None:
     """
     Utility to save regression metrics as csv files.
@@ -293,6 +445,9 @@ def save_metrics_to_csv(
         metrics: A dictionary containing regression metrics.
         output_dir: Directory to save the csv files.
         labels: List of target labels.
+        dap: Whether the metrics correspond to DAP samples.
+        prefix: Optional prefix for the output filenames.
+
     """
     
 
@@ -312,7 +467,7 @@ def save_metrics_to_csv(
 
     # Create dataframe with targets on rows and metrics on columns
     df = pd.DataFrame(data, columns=columns)
-    df.to_csv(output_dir / f'regression_metrics_{posterior_samples_type}.csv', index=False)
+    df.to_csv(output_dir / f'{prefix}regression_metrics_{posterior_samples_type}.csv', index=False)
 
     # Create and save a dataframe for each metric
     for metric_name in metrics_keys:
@@ -325,7 +480,7 @@ def save_metrics_to_csv(
         ]).squeeze()
 
         df = pd.DataFrame(data, columns=columns)
-        df.to_csv(output_dir / f'regression_{metric_name}_{posterior_samples_type}.csv', index=False)
+        df.to_csv(output_dir / f'{prefix}regression_{metric_name}_{posterior_samples_type}.csv', index=False)
 
 
 def save_regression_errors_to_csv(
@@ -391,6 +546,7 @@ def save_regression_metrics_to_csv(
     metrics: dict,
     output_dir: Path,
     labels: List[str],
+    prefix: str = ''
 ) -> None:
     """
     Save regression metrics to csv files.
@@ -406,6 +562,7 @@ def save_regression_metrics_to_csv(
         output_dir=output_dir,
         labels=labels,
         dap=False,
+        prefix=prefix
     )
     
     # If DAP metrics are provided, save them too
@@ -417,6 +574,7 @@ def save_regression_metrics_to_csv(
             output_dir=output_dir,
             labels=labels,
             dap=True,
+            prefix=prefix
         )
 
     return None
