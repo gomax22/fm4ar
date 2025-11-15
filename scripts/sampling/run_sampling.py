@@ -21,7 +21,9 @@ from fm4ar.utils.hdf import (
     save_to_hdf, 
     merge_hdf_files, 
 )
+from fm4ar.utils.nfe import merge_histories, NFEProfiler
 from fm4ar.utils.npy import save_to_npy
+from pprint import pprint
 
 # -------------------------------------------------------------------------
 # Define worker function at module level
@@ -46,6 +48,7 @@ def run_on_gpu(rank, args, config, job_ids):
         return
 
     results = draw_samples(args=args, config=config)
+    profiler = results.pop("profiler")
 
     # Convert some arrays to float32 to save space
     for key in ("samples", "log_prob_samples", "log_probs_true_thetas"):
@@ -58,8 +61,21 @@ def run_on_gpu(rank, args, config, job_ids):
         log_prob_samples=results["log_prob_samples"],
         log_probs_true_thetas=results["log_probs_true_thetas"],
     )
+    print("Done.\n")
 
-    print(f"[GPU {gpu_id}] Finished job {job_id}, saved to {output_file_path}")
+
+    print("Showing NFE profiler summary:")
+    pprint(profiler.summary())
+    print("Done.\n")
+
+    print("Exporting NFE profiler data...", end=" ", flush=True)
+    # TODO: make output format configurable
+    output_file_path = args.experiment_dir / f"nfe-profile-{job_id:04d}.pkl"
+    profiler.export(
+        file_path=output_file_path,
+    )
+    print("Done.\n")
+    print(f"[GPU {gpu_id}] Finished job {job_id}.\n")
     return
 
 if __name__ == "__main__":
@@ -133,8 +149,8 @@ if __name__ == "__main__":
             target_dir=args.experiment_dir,
             name_pattern="samples-*.hdf",
             output_file_path=args.experiment_dir / "samples.hdf",
-            keys=["samples", "log_prob_samples", "log_probs_true_thetas"],
-            singleton_keys=(),
+            keys=["samples", "log_prob_samples"],
+            singleton_keys=["log_probs_true_thetas"],
             delete_after_merge=config.merge_samples.delete_after_merge,
             show_progressbar=config.merge_samples.show_progressbar,
             axis=1,
@@ -157,6 +173,37 @@ if __name__ == "__main__":
         )
         print("Done.\n")
 
+    # -------------------------------------------------------------------------
+    # Stage 3: Merge profiler data
+    # -------------------------------------------------------------------------
+
+    if args.stage == "merge_profilers" or args.stage is None:
+
+        print(80 * "-", flush=True)
+        print("(3) Merge NFE Profiler data", flush=True)
+        print(80 * "-" + "\n", flush=True)
+
+        print("Merging NFE profiler data...", flush=True)
+        # TODO: make output format configurable
+        all_histories = merge_histories(
+            target_dir=args.experiment_dir,
+            name_pattern="nfe-profile-*.pkl",
+            output_file_path=args.experiment_dir / "nfe-profile.pkl",
+            reindex_batches=config.merge_profilers.reindex_batches,
+            delete_after_merge=config.merge_profilers.delete_after_merge,
+            show_progressbar=config.merge_profilers.show_progressbar,
+
+        )
+        print("Done.\n")
+
+        print("Creating merged NFE profiler from history...", flush=True)
+        profiler = NFEProfiler.from_history(all_histories)
+        print("Done.\n")
+
+        # Print summary
+        print("Showing merged NFE profiler summary:")
+        pprint(profiler.summary())
+        print("Done.\n")
         
     # -------------------------------------------------------------------------
     # Postliminaries
