@@ -25,11 +25,12 @@ from fm4ar.torchutils.dataloaders import (
 )
 from fm4ar.utils.config import load_config as load_experiment_config
 from fm4ar.utils.tracking import LossInfo
+from fm4ar.utils.nfe import NFEProfiler
 
 def draw_samples(
     args: Namespace,
     config: SamplingConfig,
-) -> dict[str, np.ndarray]:
+) -> dict[str, np.ndarray | float | NFEProfiler]: 
     """
     Draw samples from the proposal distribution.
 
@@ -120,7 +121,7 @@ def draw_samples_from_ml_model(
     model_kwargs: dict[str, Any] | None = None,
     loss_kwargs: dict[str, Any] | None = None,
     use_amp: bool = False,
-) -> dict[str, np.ndarray]:
+) -> dict[str, np.ndarray | float | NFEProfiler]:
     """
     Draw samples from a trained ML model (NPE or FMPE),
     and also evaluate the log-probability of the true theta.
@@ -154,12 +155,8 @@ def draw_samples_from_ml_model(
         print_freq=1,
     )
 
-    example_batch = next(iter(test_loader))
-    theta_example, _, _ = move_batch_to_device(example_batch, model.device)
-    n_test_batches = len(test_loader)
-    batch_size = theta_example.shape[0]
-    theta_dim = theta_example.shape[1]
-
+    # Preallocate arrays to store samples and log-probs
+    theta_dim = next(iter(test_loader))['theta'].shape[1]
     samples = torch.zeros((len(test_loader.dataset), n_samples, theta_dim), dtype=torch.float32)
     log_prob_samples = torch.zeros((len(test_loader.dataset), n_samples), dtype=torch.float32)
     log_probs_true_thetas = torch.zeros((len(test_loader.dataset), 1), dtype=torch.float32)
@@ -277,6 +274,7 @@ def draw_samples_from_ml_model(
         "log_prob_samples": log_prob_samples.numpy(),
         "log_probs_true_thetas": log_probs_true_thetas.numpy(),
         "avg_loss": loss_info.get_avg(),
+        "profiler": model.profiler,
     }
 
 

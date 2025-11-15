@@ -77,6 +77,25 @@ class MergeSamplesConfig(BaseModel):
         description="Whether to show a progress bar during merging.",
     )
 
+class MergeProfilersConfig(BaseModel):
+    """
+    Configuration for merging NFE profilers.
+    """
+
+    delete_after_merge: bool = Field(
+        default=True,
+        description="Whether to delete the source profiler files after merging.",
+    )
+    show_progressbar: bool = Field(
+        default=True,
+        description="Whether to show a progress bar during merging.",
+    )
+    reindex_batches: bool = Field(
+        default=True,
+        description=(
+            "Whether to reindex batch indices in the merged profiler history."
+        ),
+    )
 
 class SamplingConfig(BaseModel):
     """
@@ -111,6 +130,7 @@ class SamplingConfig(BaseModel):
     # Configuration for the individual stages
     draw_samples: DrawSamplesConfig
     merge_samples: MergeSamplesConfig
+    merge_profilers: MergeProfilersConfig
 
 def load_config(
     experiment_dir: Path,

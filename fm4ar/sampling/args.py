@@ -44,10 +44,11 @@ def get_cli_arguments() -> argparse.Namespace:
         type=str,
         choices=[
             "draw_samples",
-            "merge_samples"
+            "merge_samples",
+            "merge_profilers"
         ],
         default=None,
-        help="Stage of the importance sampling workflow that should be run.",
+        help="Stage of the sampling workflow that should be run.",
     )
     args = parser.parse_args()
 

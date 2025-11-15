@@ -6,15 +6,18 @@ from typing import Any
 
 import torch
 from torch import nn as nn
-from torchdiffeq import odeint
 
 from fm4ar.models.base import Base
 from fm4ar.nn.embedding_nets import create_embedding_net
 from fm4ar.nn.vectorfield_nets import create_vectorfield_net
 from fm4ar.torchutils.general import set_random_seed
+from fm4ar.torchutils.odeint import odeint_nfe as odeint
 from fm4ar.utils.shapes import validate_dims
 from fm4ar.time_priors import get_time_prior
+from fm4ar.utils.nfe import NFEProfiler
 
+from torchdiffeq._impl.odeint import SOLVERS
+from torchdiffeq._impl.solvers import FixedGridODESolver, AdaptiveStepsizeODESolver
 
 class FMPEModel(Base):
     """
@@ -42,6 +45,8 @@ class FMPEModel(Base):
 
         self.time_prior_distribution = get_time_prior(time_prior_config)
         self.dim_theta = model_config["dim_theta"]
+
+        self.profiler = NFEProfiler()
 
     def evaluate_vectorfield(
         self,
@@ -103,6 +108,8 @@ class FMPEModel(Base):
         aux_data: torch.Tensor = None,
         tolerance: float = 1e-7,
         method: str = "dopri5",
+        num_steps: int = 100,
+        epsilon: float = 1e-8,
     ) -> torch.Tensor:
         """
         Evaluates log_probs of theta conditional on provided context.
@@ -117,8 +124,12 @@ class FMPEModel(Base):
             theta: Parameter values for which to evaluate the log_prob.
             context: Context (i.e., observed data).
             aux_data: Auxiliary data (e.g., planetary system data).
-            tolerance: Tolerance (atol and rtol) for the ODE solver.
+            tolerance: Tolerance (atol and rtol) for adaptive ODE solvers.
             method: ODE solver method. Default is "dopri5".
+            num_steps: Number of steps for the ODE solver (only used
+                for fixed-step methods).
+            epsilon: Small constant to avoid numerical issues with
+                fixed-step ODE solvers.
 
         Returns:
             The log probability of `theta`.
@@ -131,18 +142,38 @@ class FMPEModel(Base):
         ).unsqueeze(1)
         theta_and_div_init = torch.cat((theta, div_init), dim=1)
 
+        # Detect if we are using a fixed-step method
+        t_values: torch.Tensor
+        if issubclass(SOLVERS[method], FixedGridODESolver):
+            if num_steps < 2:
+                raise ValueError(
+                    "num_steps must be at least 2 for fixed-step ODE solvers."
+                )
+            t_values = torch.linspace(
+                self.integration_range[1] - epsilon,
+                self.integration_range[0],
+                steps=num_steps,
+                device=self.device,
+            )
+        # Otherwise, use the standard integration range
+        # for adaptive-step methods
+        else:
+            t_values = self.integration_range
+
+
         # Integrate backwards in time to get from theta_1 to theta_0;
         # note the `flip()` of the integration range
-        _, theta_and_div_0 = odeint(
+        theta_and_div_0 = odeint(
             func=lambda t, theta_and_div_t: self.rhs_of_joint_ode(
                 t, theta_and_div_t, context, aux_data
             ),
             y0=theta_and_div_init,
-            t=torch.flip(self.integration_range, dims=(0,)),
+            t=torch.flip(t_values, dims=(0,)),
+            profiler=self.profiler,
             atol=tolerance,
             rtol=tolerance,
             method=method,
-        )
+        )[-1]
 
         theta_0 = theta_and_div_0[:, :-1]
         divergence = theta_and_div_0[:, -1]
@@ -245,6 +276,8 @@ class FMPEModel(Base):
         num_samples: int = 1,
         tolerance: float = 1e-7,
         method: str = "dopri5",
+        num_steps: int = 100,
+        epsilon: float = 1e-8,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Draw posterior samples and return them together with their log-
@@ -265,8 +298,13 @@ class FMPEModel(Base):
             num_samples: Number of posterior samples to generate in the
                 unconditional case. If `context` is provided, the number
                 of samples is automatically determined from the context.
-            tolerance: Tolerance (atol and rtol) for the ODE solver.
+            tolerance: Tolerance (atol and rtol) for adaptive ODE solvers.
             method: ODE solver method. Default is "dopri5".
+            num_steps: Number of steps for the ODE solver (only used
+                for fixed-step methods).
+            epsilon: Small constant to avoid numerical issues with
+                fixed-step ODE solvers.
+
 
         Returns:
             The generated samples and their log probabilities.
@@ -284,18 +322,39 @@ class FMPEModel(Base):
         theta_and_div_init = torch.cat(
             (theta_0, log_prior.unsqueeze(1)), dim=1
         )
+        
+        # Detect if we are using a fixed-step method
+        # If so, create a fixed grid of time points
+        t_values: torch.Tensor
+        if issubclass(SOLVERS[method], FixedGridODESolver):
+            if num_steps < 2:
+                raise ValueError(
+                    "num_steps must be at least 2 for fixed-step ODE solvers."
+                )
+
+            t_values = torch.linspace(
+                self.integration_range[0] + epsilon,
+                self.integration_range[1],
+                steps=num_steps,
+                device=self.device,
+            )
+        # Otherwise, use the standard integration range
+        # for adaptive-step methods
+        else:
+            t_values = self.integration_range
 
         # Integrate forwards in time to get from theta_0 to theta_1
-        _, theta_and_div_1 = odeint(
+        theta_and_div_1 = odeint(
             func=lambda t, theta_and_div_t: self.rhs_of_joint_ode(
                 t, theta_and_div_t, context, aux_data   
             ),
             y0=theta_and_div_init,
-            t=self.integration_range,
+            t=t_values,
+            profiler=self.profiler,
             atol=tolerance,
             rtol=tolerance,
             method=method,
-        )
+        )[-1]
 
         theta_1, log_prob_1 = theta_and_div_1[:, :-1], theta_and_div_1[:, -1]
 
@@ -308,6 +367,8 @@ class FMPEModel(Base):
         num_samples: int = 1,
         tolerance: float = 1e-7,
         method: str = "dopri5",
+        num_steps: int = 100,
+        epsilon: float = 1e-8,
     ) -> torch.Tensor:
         """
         Returns (conditional) samples for a batch of contexts by solving
@@ -319,8 +380,12 @@ class FMPEModel(Base):
             num_samples: Number of posterior samples to generate in the
                 unconditional case. If `context` is provided, the number
                 of samples is automatically determined from the context.
-            tolerance: Tolerance (atol and rtol) for the ODE solver.
+            tolerance: Tolerance (atol and rtol) for adaptive ODE solvers.
             method: ODE solver method. Default is "dopri5".
+            num_steps: Number of steps for the ODE solver (only used
+                for fixed-step methods).
+            epsilon: Small constant to avoid numerical issues with
+                fixed-step ODE solvers.
 
         Returns:
             The generated samples.
@@ -333,19 +398,39 @@ class FMPEModel(Base):
             context["flux"].shape[0] if context is not None else num_samples
         )
 
+        # Detect if we are using a fixed-step method
+        # If so, create a fixed grid of time points
+        t_values: torch.Tensor
+        if issubclass(SOLVERS[method], FixedGridODESolver):
+            if num_steps < 2:
+                raise ValueError(
+                    "num_steps must be at least 2 for fixed-step ODE solvers."
+                )
+            t_values = torch.linspace(
+                self.integration_range[0] + epsilon,
+                self.integration_range[1],
+                steps=num_steps,
+                device=self.device,
+            )
+        # Otherwise, use the standard integration range
+        # for adaptive-step methods
+        else:
+            t_values = self.integration_range
+
         # Solve ODE forwards in time to get from theta_0 to theta_1
         with torch.no_grad():
             theta_0 = self.sample_theta_0(num_samples)
-            _, theta_1 = odeint(
+            theta_1 = odeint(
                 func=lambda t, theta_t: self.evaluate_vectorfield(
                     t, theta_t, context, aux_data
                 ),
                 y0=theta_0,
-                t=self.integration_range,
+                t=t_values,
+                profiler=self.profiler,
                 atol=tolerance,
                 rtol=tolerance,
                 method=method,
-            )
+            )[-1]
 
         return torch.Tensor(theta_1)
 
@@ -513,36 +598,69 @@ class FMPENetwork(nn.Module):
         context_embedding = self.get_context_embedding(context)
         validate_dims(context_embedding, 2)
 
-        if self.context_with_glu and self.auxiliary_data_with_glu:
-            cf_input = torch.empty((len(aux_data), 0), device=aux_data.device)
-            first_glu_context = torch.cat((context_embedding, auxiliary_data_embedding), 1)
-        elif not self.context_with_glu and not self.auxiliary_data_with_glu:
-            cf_input = torch.cat((context_embedding, auxiliary_data_embedding), 1) if auxiliary_data_embedding is not None else context_embedding
+        # if self.context_with_glu and self.auxiliary_data_with_glu:
+        #     cf_input = torch.empty((len(aux_data), 0), device=aux_data.device)
+        #     first_glu_context = torch.cat((context_embedding, auxiliary_data_embedding), 1)
+        # elif not self.context_with_glu and not self.auxiliary_data_with_glu:
+        #     cf_input = torch.cat((context_embedding, auxiliary_data_embedding), 1) if auxiliary_data_embedding is not None else context_embedding
+        #     first_glu_context = None
+        # elif self.context_with_glu and not self.auxiliary_data_with_glu:
+        #     cf_input = auxiliary_data_embedding
+        #     first_glu_context = context_embedding
+        # elif not self.context_with_glu and self.auxiliary_data_with_glu:
+        #     cf_input = context_embedding
+        #     first_glu_context = auxiliary_data_embedding
+        # else:
+        #     raise RuntimeError("This should never happen!")  # pragma: no cover
+
+
+        # # Collect inputs for the continuous flow network:
+        # # There are two entry points, one "normal" and one via a GLU.
+        # if self.context_with_glu and self.t_theta_with_glu:
+        #     cf_input = torch.empty((len(theta), 0), device=theta.device)
+        #     second_glu_context = torch.cat((cf_input, t_theta_embedding), 1)
+        # elif not self.context_with_glu and not self.t_theta_with_glu:
+        #     cf_input = torch.cat((cf_input, t_theta_embedding), 1)
+        #     second_glu_context = None
+        # elif self.context_with_glu and not self.t_theta_with_glu:
+        #     cf_input = t_theta_embedding
+        #     second_glu_context = cf_input
+        # elif not self.context_with_glu and self.t_theta_with_glu:
+        #     # cf_input = cf_input
+        #     second_glu_context = t_theta_embedding
+        # else:
+        #     raise RuntimeError("This should never happen!")  # pragma: no cover
+
+        if self.t_theta_with_glu and self.context_with_glu:
+            cf_input = torch.empty((len(context['flux']), 0), device=context['flux'].device)
+            first_glu_context = torch.cat((t_theta_embedding, context_embedding), 1)
+        elif not self.t_theta_with_glu and not self.context_with_glu:
+            cf_input = torch.cat((t_theta_embedding, context_embedding), 1) if context_embedding is not None else t_theta_embedding
             first_glu_context = None
-        elif self.context_with_glu and not self.auxiliary_data_with_glu:
-            cf_input = auxiliary_data_embedding
-            first_glu_context = context_embedding
-        elif not self.context_with_glu and self.auxiliary_data_with_glu:
+        elif self.t_theta_with_glu and not self.context_with_glu:
             cf_input = context_embedding
-            first_glu_context = auxiliary_data_embedding
+            first_glu_context = t_theta_embedding
+        elif not self.t_theta_with_glu and self.context_with_glu:
+            cf_input = t_theta_embedding
+            first_glu_context = context_embedding
         else:
             raise RuntimeError("This should never happen!")  # pragma: no cover
 
 
         # Collect inputs for the continuous flow network:
         # There are two entry points, one "normal" and one via a GLU.
-        if self.context_with_glu and self.t_theta_with_glu:
-            cf_input = torch.empty((len(theta), 0), device=theta.device)
-            second_glu_context = torch.cat((cf_input, t_theta_embedding), 1)
-        elif not self.context_with_glu and not self.t_theta_with_glu:
-            cf_input = torch.cat((cf_input, t_theta_embedding), 1)
+        if self.t_theta_with_glu and self.auxiliary_data_with_glu:
+            cf_input = torch.empty((len(aux_data), 0), device=theta.device)
+            second_glu_context = torch.cat((cf_input, auxiliary_data_embedding), 1)
+        elif not self.t_theta_with_glu and not self.auxiliary_data_with_glu:
+            cf_input = torch.cat((cf_input, auxiliary_data_embedding), 1) if auxiliary_data_embedding is not None else cf_input
             second_glu_context = None
-        elif self.context_with_glu and not self.t_theta_with_glu:
-            cf_input = t_theta_embedding
+        elif self.t_theta_with_glu and not self.auxiliary_data_with_glu:
+            cf_input = auxiliary_data_embedding
             second_glu_context = cf_input
-        elif not self.context_with_glu and self.t_theta_with_glu:
+        elif not self.t_theta_with_glu and self.auxiliary_data_with_glu:
             # cf_input = cf_input
-            second_glu_context = t_theta_embedding
+            second_glu_context = auxiliary_data_embedding
         else:
             raise RuntimeError("This should never happen!")  # pragma: no cover
 
@@ -602,17 +720,27 @@ def create_fmpe_network(model_config: dict) -> FMPENetwork:
     ) if "auxiliary_data_embedding_net" in list(model_config.keys()) else (nn.Identity(), 0)
 
     # Compute GLU dimensions and input dimension for continuous flow network
+    # dim_first_glu = (
+    #     auxiliary_data_with_glu * dim_embedded_auxiliary_data
+    #     + context_with_glu * dim_embedded_context
+    # )
+
+    # dim_second_glu = (
+    #     t_theta_with_glu * dim_embedded_t_theta
+    #     + context_with_glu * dim_embedded_context
+    # )
+
     dim_first_glu = (
-        auxiliary_data_with_glu * dim_embedded_auxiliary_data
-        + context_with_glu * dim_embedded_context
+        context_with_glu * dim_embedded_context
+        + t_theta_with_glu * dim_embedded_t_theta
     )
-
     dim_second_glu = (
-        t_theta_with_glu * dim_embedded_t_theta
-        + context_with_glu * dim_embedded_context
+        auxiliary_data_with_glu * dim_embedded_auxiliary_data
+        + t_theta_with_glu * dim_embedded_t_theta
     )
-
+    
     dim_input = dim_embedded_context + dim_embedded_auxiliary_data + dim_embedded_t_theta - dim_first_glu - dim_second_glu
+
     dim_first_glu = dim_first_glu if dim_first_glu > 0 else None
     dim_second_glu = dim_second_glu if dim_second_glu > 0 else None
 
