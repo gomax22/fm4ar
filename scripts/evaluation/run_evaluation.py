@@ -15,7 +15,8 @@ from fm4ar.evaluation.config import (
     RegressionConfig, 
     CoverageConfig,
     LogProbsConfig,
-    DrawCornerPlotsConfig
+    DistributionConfig,
+    DrawCornerPlotsConfig,
 )
 from fm4ar.evaluation.sbc import run_simulation_based_calibration
 from fm4ar.evaluation.tarp import run_tarp_evaluation
@@ -39,6 +40,10 @@ from fm4ar.evaluation.regression import (
     make_violin_plots_of_errors,
 )
 from fm4ar.evaluation.log_probs import save_log_probs_to_csv
+from fm4ar.evaluation.distribution import (
+    compute_distribution_metrics,
+    save_distribution_metrics_to_csv,
+)
 from fm4ar.evaluation.args import get_cli_arguments
 from fm4ar.evaluation.config import load_config
 from fm4ar.utils.config import load_config as load_experiment_config
@@ -437,6 +442,79 @@ def run_log_probs_analysis(
     return df
 
 
+def run_distribution_metrics(
+    args: argparse.Namespace,
+    config: DistributionConfig,
+    output_dir: Path
+
+) -> dict:
+    """
+    Run distribution metrics evaluation.
+    Args:
+        args: Command line arguments.
+        config: Distribution configuration.
+        output_dir: Output directory for saving results.
+    Returns:
+        A dictionary containing distribution metrics.
+    """
+    
+    # Ensure output directory exists
+    if not output_dir.exists():
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load experiment config
+    print("Loading experiment config...", end=' ', flush=True)
+    experiment_config = load_experiment_config(
+        experiment_dir=args.experiment_dir
+    )
+    print("Done!", flush=True)
+
+    # Load posterior samples
+    print("Loading posterior samples...", end=' ', flush=True)
+    posterior_samples = np.load(
+        args.experiment_dir / 'posterior_distribution.npy'
+    )
+    print("Done!", flush=True)
+    # posterior_samples[..., 0] = np.clip(
+    #     posterior_samples[..., 0], 
+    #     a_min=1, 
+    #     a_max=None
+    # )
+    # posterior_samples[..., 0] = np.log10(posterior_samples[..., 0])
+
+
+    # Load thetas
+    print("Loading test dataset...", end=' ', flush=True)
+    _, _, test_dataset = load_dataset(config=experiment_config)
+    # train_dataset, _, test_dataset = load_dataset(config=experiment_config)
+    thetas = test_dataset.get_parameters()
+    print("Done!", flush=True)
+
+    # posterior_samples[..., 0] = np.clip(
+    #     posterior_samples[..., 0], 
+    #     a_min=train_dataset.get_parameters().min(axis=0)[0], 
+    #     a_max=None
+    # )
+
+    # Compute distribution metrics
+    print("Computing distribution metrics...", end=' ', flush=True)
+    metrics = compute_distribution_metrics(
+        thetas=thetas,
+        posterior_samples=posterior_samples,
+        device=config.device,
+    )
+    print("Done!", flush=True)
+    print("Saving distribution metrics to CSV...", end=' ', flush=True)
+    save_distribution_metrics_to_csv(
+        metrics=metrics,
+        output_dir=output_dir,
+        labels=test_dataset.get_parameters_labels(),
+    )
+    print("Done!", flush=True)
+    del posterior_samples, thetas, test_dataset, experiment_config
+    return metrics
+
+
 def draw_corner_plots(
     args: argparse.Namespace,
     config: DrawCornerPlotsConfig,
@@ -647,14 +725,38 @@ if __name__ == "__main__":
         )
 
         print("Done!\n\n")
-
+    
     # -------------------------------------------------------------------------
     # Stage 5: Draw corner plots on test set
+    # -------------------------------------------------------------------------
+    if args.stage == "evaluate_distribution_metrics" or args.stage is None:
+
+        print(80 * "-", flush=True)
+        print("(4) Evaluate distribution metrics on test set", flush=True)
+        print(80 * "-" + "\n", flush=True)
+
+        distribution_metrics_output_dir = Path(
+            args.experiment_dir / "evaluation" / "distribution"
+        )
+        # Within this function, we compute:
+        # - JSD
+        # - MMD
+        # - Wasserstein distance
+        results = run_distribution_metrics(
+            args=args, 
+            config=config.evaluate_distribution_metrics,
+            output_dir=distribution_metrics_output_dir
+        )
+
+        print("Done!\n\n")
+
+    # -------------------------------------------------------------------------
+    # Stage 6: Draw corner plots on test set
     # -------------------------------------------------------------------------
     if args.stage == "draw_corner_plots" or args.stage is None:
 
         print(80 * "-", flush=True)
-        print("(5) Draw corner plots on test set", flush=True)
+        print("(6) Draw corner plots on test set", flush=True)
         print(80 * "-" + "\n", flush=True)
 
         corner_output_dir = Path(

@@ -26,6 +26,7 @@ def get_cli_arguments() -> argparse.Namespace:
             "evaluate_calibration_metrics",
             "evaluate_coverage_metrics",
             "evaluate_log_probs",
+            "evaluate_distribution_metrics",
             "draw_corner_plots"
         ],
         default=None,

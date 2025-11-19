@@ -83,6 +83,17 @@ class LogProbsConfig(BaseModel):
         description="Placeholder key for log probability evaluation.",
     )
 
+
+class DistributionConfig(BaseModel):
+    """
+    Configuration for a generic distribution evaluation stage.
+    """
+    device: str = Field(
+        default="cuda",
+        description="Device to use for computations.",
+    )
+    
+
 class DrawCornerPlotsConfig(BaseModel):
     """
     Configuration for the "draw_corner_plots" stage.
@@ -132,6 +143,7 @@ class EvaluationConfig(BaseModel):
     evaluate_regression_metrics: RegressionConfig
     evaluate_coverage_metrics: CoverageConfig
     evaluate_log_probs: LogProbsConfig
+    evaluate_distribution_metrics: DistributionConfig
     draw_corner_plots: DrawCornerPlotsConfig
 
 def load_config(

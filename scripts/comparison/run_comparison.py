@@ -143,6 +143,30 @@ def merge_coverage_per_target(config: dict, output_dir: Path) -> Optional[pd.Dat
     )
 
 
+def merge_distribution_metrics(config: dict, output_dir: Path) -> Optional[pd.DataFrame]:
+    jsd_aggregate_df = merge_experiment_results(
+        config=config,
+        output_dir=output_dir,
+        relative_file_path="evaluation/distribution/jsd_aggregate_summary.csv",
+        output_filename="jsd_aggregate_summary.csv",
+        description="jsd aggregate"
+    )
+    jsd_per_observation_df = merge_experiment_results(
+        config=config,
+        output_dir=output_dir,
+        relative_file_path="evaluation/distribution/jsd_per_observation_summary.csv",
+        output_filename="jsd_per_observation_summary.csv",
+        description="jsd per observation"
+    )
+    mmd_aggregate_df = merge_experiment_results(
+        config=config,
+        output_dir=output_dir,
+        relative_file_path="evaluation/distribution/mmd_summary.csv",
+        output_filename="mmd_summary.csv",
+        description="mmd summary"
+    )
+    return jsd_aggregate_df, jsd_per_observation_df, mmd_aggregate_df
+
 def merge_log_probs_true_thetas(config: dict, output_dir: Path) -> Optional[pd.DataFrame]:
     return merge_experiment_results(
         config=config,
@@ -170,15 +194,22 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--output-dir",
-        required=True,
+        required=False,
+        default=Path("experiments/comparison"),
         type=Path,
-        help="Directory where to save the merged comparison results.",
+        help="Directory where to save the merged comparison results.  \
+              By default, this is 'experiment/comparison'. \
+              The results will be saved in a subdirectory named as the config \
+              file (without extension).",
     )
     args = parser.parse_args()
     with open(args.config, "r") as f:
         config = safe_load(f)
 
-    output_dir = expand_env_variables_in_path(args.output_dir)
+    # Extract name of the config file without extension
+    config_name = args.config.stem
+
+    output_dir = expand_env_variables_in_path(args.output_dir / config_name)
     if not output_dir.exists():
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -234,12 +265,23 @@ if __name__ == "__main__":
     )
 
     print("Done!\n\n")
-
     # -------------------------------------------------
-    # Stage 4: Load log probs results and merge into a single dataframe
+    # Stage 4: Load distribution metrics and merge into dataframes
     # -------------------------------------------------
     print(80 * "-", flush=True)
-    print("(4) Merge log probs results into a single dataframe", flush=True)
+    print("(5) Merge distribution metrics into dataframes", flush=True)
+    print(80 * "-" + "\n", flush=True)
+    jsd_aggregate_df, jsd_per_observation_df, mmd_aggregate_df = merge_distribution_metrics(
+        config, 
+        output_dir
+    )
+    print("Done!\n\n")
+
+    # -------------------------------------------------
+    # Stage 5: Load log probs results and merge into a single dataframe
+    # -------------------------------------------------
+    print(80 * "-", flush=True)
+    print("(5) Merge log probs results into a single dataframe", flush=True)
     print(80 * "-" + "\n", flush=True)
     merged_df = merge_log_probs_true_thetas(
         config, 
