@@ -125,6 +125,11 @@ class NFEProfiler:
                 duration = entry["duration"]
 
                 summary_dict[key]["NFEs"] += 1
+
+                # time_sec reports the total time spent in this key as no 
+                # multiprocessing is used. If multiple processes/GPUs are used,
+                # the effective time spent is divided by the number of parallel jobs.
+                # TODO: divide by number of jobs if available
                 summary_dict[key]["time_sec"] += duration
 
         return dict(summary_dict)
