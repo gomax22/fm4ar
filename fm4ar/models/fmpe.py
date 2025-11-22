@@ -14,7 +14,7 @@ from fm4ar.torchutils.general import set_random_seed
 from fm4ar.torchutils.odeint import odeint_nfe as odeint
 from fm4ar.utils.shapes import validate_dims
 from fm4ar.time_priors import get_time_prior
-from fm4ar.utils.nfe import NFEProfiler, prepare_profiler_kwargs
+from fm4ar.utils.nfe import NFEProfiler
 
 from torchdiffeq._impl.odeint import SOLVERS
 from torchdiffeq._impl.solvers import FixedGridODESolver, AdaptiveStepsizeODESolver
