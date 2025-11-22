@@ -94,7 +94,7 @@ if __name__ == "__main__":
     if not args.experiment_dir.exists():
         raise FileNotFoundError(f"Directory not found: {args.experiment_dir}")
 
-    # Load the importance sampling config
+    # Load the sampling config
     config = load_config(experiment_dir=args.experiment_dir)
 
     # -------------------------------------------------------------------------

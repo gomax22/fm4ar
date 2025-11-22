@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import Iterable
 
+
 # -----------------------------------------------------------------------------
 # Function evaluation counter utilities
 # -----------------------------------------------------------------------------
@@ -43,23 +44,23 @@ def count_nfe(counter_name: str):
 
 class NFEProfiler:
     """
-    Tracks ODE function evaluations (NFEs) per batch,
-    including batch_size and chunk_size for effective sample count.
+    Tracks neural function evaluations (NFEs) during ODE solving.
     """
 
     def __init__(self):
+        
         self.nfe = NFECounter()
-        self.history = []  # list of batches
+        self.history = []  
         self.current_batch_idx = 0
         self._current_batch_history = []
-    
+
     @classmethod
     def from_history(cls, history: list[dict]):
         """
         Create a new NFEProfiler instance from an existing history.
 
         Args:
-            history: List of batch dictionaries (same format as self.history)
+            history: List of batch histories to initialize the profiler with.
         
         Returns:
             profiler: NFEProfiler instance with the given history.
@@ -117,19 +118,17 @@ class NFEProfiler:
 
         self.finalize()
 
-        summary_dict = defaultdict(lambda: {"NFEs": 0, "time_sec": 0.0})
+        summary_dict = defaultdict(lambda: {
+            "NFEs": 0, 
+            "time_sec": 0.0,
+        })
 
         for batch in self.history:
             for entry in batch["profile"]:
                 key = entry["key"]
                 duration = entry["duration"]
-
                 summary_dict[key]["NFEs"] += 1
 
-                # time_sec reports the total time spent in this key as no 
-                # multiprocessing is used. If multiple processes/GPUs are used,
-                # the effective time spent is divided by the number of parallel jobs.
-                # TODO: divide by number of jobs if available
                 summary_dict[key]["time_sec"] += duration
 
         return dict(summary_dict)
@@ -171,7 +170,6 @@ def merge_histories(
     """
     import pickle
     from tqdm import tqdm
-    import glob
 
     all_histories = []
     all_paths = sorted(target_dir.glob(name_pattern))

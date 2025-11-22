@@ -14,7 +14,7 @@ from fm4ar.torchutils.general import set_random_seed
 from fm4ar.torchutils.odeint import odeint_nfe as odeint
 from fm4ar.utils.shapes import validate_dims
 from fm4ar.time_priors import get_time_prior
-from fm4ar.utils.nfe import NFEProfiler
+from fm4ar.utils.nfe import NFEProfiler, prepare_profiler_kwargs
 
 from torchdiffeq._impl.odeint import SOLVERS
 from torchdiffeq._impl.solvers import FixedGridODESolver, AdaptiveStepsizeODESolver
@@ -47,6 +47,7 @@ class FMPEModel(Base):
         self.dim_theta = model_config["dim_theta"]
 
         self.profiler = NFEProfiler()
+        
 
     def evaluate_vectorfield(
         self,
@@ -149,9 +150,12 @@ class FMPEModel(Base):
                 raise ValueError(
                     "num_steps must be at least 2 for fixed-step ODE solvers."
                 )
+            
+            # In fixed-step case, avoid the boundary points
+            # to prevent numerical issues
             t_values = torch.linspace(
+                self.integration_range[0] + epsilon,
                 self.integration_range[1] - epsilon,
-                self.integration_range[0],
                 steps=num_steps,
                 device=self.device,
             )
@@ -332,9 +336,11 @@ class FMPEModel(Base):
                     "num_steps must be at least 2 for fixed-step ODE solvers."
                 )
 
+            # In fixed-step case, avoid the boundary points
+            # to prevent numerical issues
             t_values = torch.linspace(
                 self.integration_range[0] + epsilon,
-                self.integration_range[1],
+                self.integration_range[1] - epsilon,
                 steps=num_steps,
                 device=self.device,
             )
@@ -406,9 +412,12 @@ class FMPEModel(Base):
                 raise ValueError(
                     "num_steps must be at least 2 for fixed-step ODE solvers."
                 )
+            
+            # In fixed-step case, avoid the boundary points
+            # to prevent numerical issues
             t_values = torch.linspace(
                 self.integration_range[0] + epsilon,
-                self.integration_range[1],
+                self.integration_range[1] - epsilon,
                 steps=num_steps,
                 device=self.device,
             )
@@ -598,75 +607,40 @@ class FMPENetwork(nn.Module):
         context_embedding = self.get_context_embedding(context)
         validate_dims(context_embedding, 2)
 
-        # if self.context_with_glu and self.auxiliary_data_with_glu:
-        #     cf_input = torch.empty((len(aux_data), 0), device=aux_data.device)
-        #     first_glu_context = torch.cat((context_embedding, auxiliary_data_embedding), 1)
-        # elif not self.context_with_glu and not self.auxiliary_data_with_glu:
-        #     cf_input = torch.cat((context_embedding, auxiliary_data_embedding), 1) if auxiliary_data_embedding is not None else context_embedding
-        #     first_glu_context = None
-        # elif self.context_with_glu and not self.auxiliary_data_with_glu:
-        #     cf_input = auxiliary_data_embedding
-        #     first_glu_context = context_embedding
-        # elif not self.context_with_glu and self.auxiliary_data_with_glu:
-        #     cf_input = context_embedding
-        #     first_glu_context = auxiliary_data_embedding
-        # else:
-        #     raise RuntimeError("This should never happen!")  # pragma: no cover
+        # Prepare GLU contexts
+        # Standard Modeling - context_embedding as main input, aux_data_embedding and t_theta_embedding as GLU conditioning
+        # Alternative Modeling - t_theta_embedding as main input, context_embedding and aux_data_embedding as GLU conditioning
+        # Old Modeling - context_embedding as main input, t_theta_embedding and aux_data_embedding (concatenated) as GLU conditioning
 
-
-        # # Collect inputs for the continuous flow network:
-        # # There are two entry points, one "normal" and one via a GLU.
-        # if self.context_with_glu and self.t_theta_with_glu:
-        #     cf_input = torch.empty((len(theta), 0), device=theta.device)
-        #     second_glu_context = torch.cat((cf_input, t_theta_embedding), 1)
-        # elif not self.context_with_glu and not self.t_theta_with_glu:
-        #     cf_input = torch.cat((cf_input, t_theta_embedding), 1)
-        #     second_glu_context = None
-        # elif self.context_with_glu and not self.t_theta_with_glu:
-        #     cf_input = t_theta_embedding
-        #     second_glu_context = cf_input
-        # elif not self.context_with_glu and self.t_theta_with_glu:
-        #     # cf_input = cf_input
-        #     second_glu_context = t_theta_embedding
-        # else:
-        #     raise RuntimeError("This should never happen!")  # pragma: no cover
-
-        if self.t_theta_with_glu and self.context_with_glu:
-            cf_input = torch.empty((len(context['flux']), 0), device=context['flux'].device)
-            first_glu_context = torch.cat((t_theta_embedding, context_embedding), 1)
-        elif not self.t_theta_with_glu and not self.context_with_glu:
-            cf_input = torch.cat((t_theta_embedding, context_embedding), 1) if context_embedding is not None else t_theta_embedding
-            first_glu_context = None
-        elif self.t_theta_with_glu and not self.context_with_glu:
+        if not self.context_with_glu and self.auxiliary_data_with_glu and self.t_theta_with_glu:
+            # Standard Modeling
+            first_glu_context = auxiliary_data_embedding
+            second_glu_context = t_theta_embedding
             cf_input = context_embedding
-            first_glu_context = t_theta_embedding
-        elif not self.t_theta_with_glu and self.context_with_glu:
+        elif not self.context_with_glu and not self.auxiliary_data_with_glu and self.t_theta_with_glu:
+            # Standard Modeling - without auxiliary data
+            first_glu_context = None
+            second_glu_context = t_theta_embedding
+            cf_input = context_embedding
+        elif self.context_with_glu and not self.auxiliary_data_with_glu and not self.t_theta_with_glu:
+            # Standard Modeling - without auxiliary data
+            first_glu_context = None
+            second_glu_context = context_embedding
             cf_input = t_theta_embedding
-            first_glu_context = context_embedding
+        elif self.context_with_glu and self.auxiliary_data_with_glu and not self.t_theta_with_glu:
+            # Standard Modeling - with auxiliary data
+            first_glu_context = auxiliary_data_embedding
+            second_glu_context = context_embedding
+            cf_input = t_theta_embedding
+        elif not self.context_with_glu and not self.auxiliary_data_with_glu and not self.t_theta_with_glu:
+            # Old Modeling - w/ or w/o auxiliary data
+            first_glu_context = None
+            second_glu_context = torch.cat([t_theta_embedding, auxiliary_data_embedding], dim=1) \
+                if auxiliary_data_embedding is not None else t_theta_embedding
+            cf_input = context_embedding
         else:
-            raise RuntimeError("This should never happen!")  # pragma: no cover
-
-
-        # Collect inputs for the continuous flow network:
-        # There are two entry points, one "normal" and one via a GLU.
-        if self.t_theta_with_glu and self.auxiliary_data_with_glu:
-            cf_input = torch.empty((len(aux_data), 0), device=theta.device)
-            second_glu_context = torch.cat((cf_input, auxiliary_data_embedding), 1)
-        elif not self.t_theta_with_glu and not self.auxiliary_data_with_glu:
-            cf_input = torch.cat((cf_input, auxiliary_data_embedding), 1) if auxiliary_data_embedding is not None else cf_input
-            second_glu_context = None
-        elif self.t_theta_with_glu and not self.auxiliary_data_with_glu:
-            cf_input = auxiliary_data_embedding
-            second_glu_context = cf_input
-        elif not self.t_theta_with_glu and self.auxiliary_data_with_glu:
-            # cf_input = cf_input
-            second_glu_context = auxiliary_data_embedding
-        else:
-            raise RuntimeError("This should never happen!")  # pragma: no cover
-
-
-        # if first_glu_context is None:
-        #     return torch.Tensor(self.vectorfield_net(cf_input))
+            raise NotImplementedError("The specified GLU configuration is not supported.")
+        
         return torch.Tensor(
             self.vectorfield_net(
                 x=cf_input, 
@@ -720,27 +694,44 @@ def create_fmpe_network(model_config: dict) -> FMPENetwork:
     ) if "auxiliary_data_embedding_net" in list(model_config.keys()) else (nn.Identity(), 0)
 
     # Compute GLU dimensions and input dimension for continuous flow network
-    # dim_first_glu = (
-    #     auxiliary_data_with_glu * dim_embedded_auxiliary_data
-    #     + context_with_glu * dim_embedded_context
-    # )
+    # Prepare dimensions of GLU contexts
+    # Standard Modeling - context_embedding as main input, aux_data_embedding and t_theta_embedding as GLU conditioning
+    # Alternative Modeling - t_theta_embedding as main input, context_embedding and aux_data_embedding as GLU conditioning
+    # Old Modeling - context_embedding as main input, t_theta_embedding and aux_data_embedding (concatenated) as GLU conditioning
 
-    # dim_second_glu = (
-    #     t_theta_with_glu * dim_embedded_t_theta
-    #     + context_with_glu * dim_embedded_context
-    # )
+    if not context_with_glu and t_theta_with_glu:
+        # Standard Modeling
+        dim_first_glu = (
+            auxiliary_data_with_glu * dim_embedded_auxiliary_data
+            + context_with_glu * dim_embedded_context
+        )
+        dim_second_glu = (
+            t_theta_with_glu * dim_embedded_t_theta
+            + context_with_glu * dim_embedded_context
+        )
+    elif context_with_glu and not t_theta_with_glu:
+        # Alternative Modeling
+        dim_first_glu = (
+            auxiliary_data_with_glu * dim_embedded_auxiliary_data
+            + t_theta_with_glu * dim_embedded_t_theta
+        )
+        dim_second_glu = (
+            context_with_glu * dim_embedded_context
+            + t_theta_with_glu * dim_embedded_t_theta
+        )
+    elif not context_with_glu and not t_theta_with_glu:
+        # Old Modeling - w/ or w/o auxiliary data
+        dim_first_glu = 0
 
-    dim_first_glu = (
-        context_with_glu * dim_embedded_context
-        + t_theta_with_glu * dim_embedded_t_theta
-    )
-    dim_second_glu = (
-        auxiliary_data_with_glu * dim_embedded_auxiliary_data
-        + t_theta_with_glu * dim_embedded_t_theta
-    )
-    
+        dim_second_glu = (
+            t_theta_with_glu * dim_embedded_t_theta
+            + auxiliary_data_with_glu * dim_embedded_auxiliary_data
+            + context_with_glu * dim_embedded_context
+        )
+    else:
+        raise NotImplementedError("The specified GLU configuration is not supported.")
+
     dim_input = dim_embedded_context + dim_embedded_auxiliary_data + dim_embedded_t_theta - dim_first_glu - dim_second_glu
-
     dim_first_glu = dim_first_glu if dim_first_glu > 0 else None
     dim_second_glu = dim_second_glu if dim_second_glu > 0 else None
 
@@ -752,7 +743,6 @@ def create_fmpe_network(model_config: dict) -> FMPENetwork:
         dim_output=dim_theta,
         network_config=model_config["vectorfield_net"],
     )
-
     # Bundle everything into a `FMPENetwork` wrapper
     network = FMPENetwork(
         vectorfield_net=vectorfield_net,

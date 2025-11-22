@@ -10,8 +10,10 @@ from pydantic import Field
 
 from torch.utils.data import Dataset
 from fm4ar.datasets.data_transforms import DataTransform
-from fm4ar.datasets.theta_scalers import IdentityScaler, ThetaScaler
-from fm4ar.datasets.auxiliary_data_scalers import AuxiliaryDataScaler, IdentityScaler as AuxIdentityScaler
+from fm4ar.datasets.scalers.theta_scalers import ThetaScaler, IdentityScaler as ThetaIdentityScaler
+from fm4ar.datasets.scalers.auxiliary_data_scalers import AuxiliaryDataScaler, IdentityScaler as AuxIdentityScaler
+from fm4ar.datasets.scalers.flux_scalers import FluxScaler, IdentityScaler as FluxIdentityScaler
+from fm4ar.datasets.scalers.error_bars_scalers import ErrorBarsScaler, IdentityScaler as ErrorBarsIdentityScaler
 from fm4ar.datasets import DatasetConfig
 
 # constants for INAF dataset
@@ -48,6 +50,10 @@ class INAFDatasetConfig(DatasetConfig):
         ...,
         description="Path to the INAF dataset directory.",
     )
+    predict_log_temperature: bool = Field(
+        ...,
+        description="Whether to predict log temperature.",
+    )
     limit: int | None = Field(
         ...,
         description="Limit the number of samples to load from the dataset.",
@@ -61,45 +67,57 @@ class INAFDatasetConfig(DatasetConfig):
 class INAFDataset(Dataset):
     def __init__(self, 
                  data_dir: str, 
-                 # components: List[str] = ['theta', 'flux', 'wlen', 'error_bars', 'aux_data'],
-                 split: str = None, 
+                 split: str, 
+                 predict_log_temperature: bool = False,
                  limit: int = None, 
                  verbose: bool = True, 
                  theta_scaler: ThetaScaler | None = None,
-                 auxiliary_data_scaler: AuxiliaryDataScaler | None = None) -> None:
+                 auxiliary_data_scaler: AuxiliaryDataScaler | None = None,
+                 flux_scaler: FluxScaler | None = None,
+                 error_bars_scaler: ErrorBarsScaler | None = None) -> None:
         super().__init__()
         assert limit is None or isinstance(limit, int), "Limit must be an integer or None."
-        # assert 'theta' in components, "'theta' must be included in components."
-        # assert 'flux' in components, "'flux' must be included in components."
-        # assert 'wlen' in components, "'wlen' must be included in components."
         assert split in ["train", "val", "test", None], "Split must be one of 'train', 'val', 'test', or None."
         
 
         self.data_dir = data_dir
-        # self.components = components
         self.split = split
         self.limit = limit
         self.verbose = verbose
+        self.predict_log_temperature = predict_log_temperature
 
         # Load file names for the specified split
         self.fnames, self.split_file = self._load_data_split(split=split, limit=limit)
 
         # Load auxiliary data file paths
         self.aux_data = os.path.join(data_dir, "AuxillaryTable.csv")
-        self.theta = os.path.join(data_dir, "FM_Parameter_Table.csv")
-
+        self.theta = os.path.join(data_dir, 
+                                  "FM_Parameter_Table_with_log_temperature.csv" if self.predict_log_temperature
+                                  else "FM_Parameter_Table.csv")
+        
         # List of transformations that will be applied in __getitem__()
         self.data_transforms: list[DataTransform] = []
 
         # Scaling transform for the parameters `theta` (e.g., minmax scaling)
         self.theta_scaler = (
-            theta_scaler if theta_scaler is not None else IdentityScaler()
+            theta_scaler if theta_scaler is not None else ThetaIdentityScaler()
         )
 
         # Scaling transform for the auxiliary data `aux_data`
         self.auxiliary_data_scaler = (
             auxiliary_data_scaler if auxiliary_data_scaler is not None else AuxIdentityScaler()
         )
+
+        # Scaling transform for the flux data `flux` (e.g., mean-std scaling)
+        self.flux_scaler = (
+            flux_scaler if flux_scaler is not None else FluxIdentityScaler()
+        )
+
+        # Scaling transform for the error_bars data `error_bars` (e.g., mean-std scaling)
+        self.error_bars_scaler = (
+            error_bars_scaler if error_bars_scaler is not None else ErrorBarsIdentityScaler()
+        )
+
 
 
     def __getitem__(self, ind):
@@ -112,10 +130,16 @@ class INAFDataset(Dataset):
         sample = {
             "theta" : self.get_parameters(indices=np.array(ind)).copy(),
             "wlen" : model['instrument_wlgrid'][:].to_numpy().copy(),
-            "flux" : model['instrument_spectrum'][:].to_numpy().copy(),
-            "error_bars" : model['instrument_noise'][:].to_numpy().copy(),
             "aux_data" : self.get_aux_data(indices=np.array(ind)).copy(),
+            "flux": model['instrument_spectrum'][:].to_numpy().copy().astype(np.float32),
+            "error_bars":  model['instrument_noise'][:].to_numpy().copy().astype(np.float32)
         }
+
+        # Apply the feature scaling for the flux
+        sample = self.flux_scaler.forward(sample)
+
+        # Apply the feature scaling for the error_bars
+        sample = self.error_bars_scaler.forward(sample)
 
         # First apply the data transforms (e.g., adding noise)
         for transform in self.data_transforms:
@@ -280,6 +304,11 @@ class INAFDataset(Dataset):
             aux_data['planet_mass_kg'] = aux_data['planet_mass_kg'] / MJUP
             aux_data['star_mass_kg'] = aux_data['star_mass_kg'] / MSOL
 
+            # To be consistent with theta, take log10 of star_temperature when
+            # predicting log temperature
+            if self.predict_log_temperature:
+                aux_data['star_temperature'] = np.log10(aux_data['star_temperature'])
+
             # Drop planet_ID column if specified
             aux_data = aux_data.drop(columns=['planet_ID']) if skip_planet_index_col else aux_data
             
@@ -337,10 +366,13 @@ class INAFDataset(Dataset):
 # TODO: load train, val, test splits
 def load_inaf_dataset(
         data_dir: str, 
+        predict_log_temperature: bool = False,
         limit: int = None, 
         verbose: bool = True, 
         theta_scaler: ThetaScaler | None = None,
-        auxiliary_data_scaler: AuxiliaryDataScaler | None = None
+        auxiliary_data_scaler: AuxiliaryDataScaler | None = None,
+        flux_scaler: FluxScaler | None = None,
+        error_bars_scaler: ErrorBarsScaler | None = None,
     ) -> tuple[INAFDataset, INAFDataset, INAFDataset]:
     """
     Load an INAF dataset from the given data directory.
@@ -350,29 +382,38 @@ def load_inaf_dataset(
     train_dataset = INAFDataset(
         data_dir=data_dir,
         split='train',
+        predict_log_temperature=predict_log_temperature,
         limit=limit,
         verbose=verbose,
         theta_scaler=theta_scaler,
         auxiliary_data_scaler=auxiliary_data_scaler,
+        flux_scaler=flux_scaler,
+        error_bars_scaler=error_bars_scaler,
     )
     
     #  Load the validation dataset
     val_dataset = INAFDataset(
         data_dir=data_dir,
+        predict_log_temperature=predict_log_temperature,
         split='val',
         limit=limit,
         verbose=verbose,
         theta_scaler=theta_scaler,
         auxiliary_data_scaler=auxiliary_data_scaler,
+        flux_scaler=flux_scaler,
+        error_bars_scaler=error_bars_scaler,
     )
     # Load the test dataset
     test_dataset = INAFDataset(
         data_dir=data_dir,
+        predict_log_temperature=predict_log_temperature,
         split='test',
         limit=limit,
         verbose=verbose,
         theta_scaler=theta_scaler,
         auxiliary_data_scaler=auxiliary_data_scaler,
+        flux_scaler=flux_scaler,
+        error_bars_scaler=error_bars_scaler,
     )
 
 

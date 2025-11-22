@@ -52,6 +52,21 @@ def draw_samples(
     experiment_config = load_experiment_config(args.experiment_dir)
     model_type = experiment_config["model"]["model_type"]
 
+    # Load the dataset (to get the context for the model)
+    print("Loading dataset...", end=" ", flush=True)
+    _, _, test_dataset = load_dataset(config=experiment_config)
+    print("Done!", flush=True)
+
+    # Build dataloader for the test dataset
+    test_dataloader = build_dataloader(
+        dataset=test_dataset,
+        batch_size=config.draw_samples.batch_size,
+        shuffle=config.draw_samples.shuffle,
+        drop_last=config.draw_samples.drop_last,
+        n_workers=get_number_of_workers(config.draw_samples.n_workers),
+        random_seed=config.draw_samples.random_seed + args.job,
+    )
+
     # Determine the number of samples that the current job should draw
     n_total = config.draw_samples.n_samples
     n_for_job = len(np.arange(args.job, n_total, args.n_jobs))
@@ -60,7 +75,6 @@ def draw_samples(
     print()
 
 
-    # TODO: load scalers, load dataset, load model, draw samples
     # Load the trained model
     print("Loading trained model...", end=" ")
     model = build_model(
@@ -82,21 +96,6 @@ def draw_samples(
     # libraries used for the NPE models do not provide a way to set the seed
     # for the RNG for the model itself but rely on the global state...
     set_random_seed(config.draw_samples.random_seed + args.job)
-
-    # Load the dataset (to get the context for the model)
-    print("Loading dataset...", end=" ", flush=True)
-    _, _, test_dataset = load_dataset(config=experiment_config)
-    print("Done!", flush=True)
-
-    # Build dataloader for the test dataset
-    test_dataloader = build_dataloader(
-        dataset=test_dataset,
-        batch_size=config.draw_samples.batch_size,
-        shuffle=config.draw_samples.shuffle,
-        drop_last=config.draw_samples.drop_last,
-        n_workers=get_number_of_workers(config.draw_samples.n_workers),
-        random_seed=config.draw_samples.random_seed + args.job,
-    )
 
     # Draw samples either from an FMPE / NPE model...
     print(f"Running for ML model ({model_type})!\n")

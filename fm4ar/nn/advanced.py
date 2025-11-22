@@ -422,6 +422,103 @@ class AttentionPoolingFusion(nn.Module):
         fused = self.fusion_mlp(fused)
         return self.norm(fused)
 
+
+
+# -----------------------------
+# Wavelength-Aware Positional Encoding (sinusoidal, log λ)
+# -----------------------------
+# modification of Wavelength Positional Encoding (SpectraFM)
+# scale factor could be learned as well
+class WavelengthPositionalEncoding(nn.Module):
+    def __init__(self, d_model, transform='log', scale_factor=1.0, base=10_000.0):
+        super().__init__()
+        self.d_model = d_model
+        self.transform = transform
+        self.scale_factor = scale_factor
+        self.base = base
+
+    def get_wavelength_transform(self, wavelengths):
+        """
+        wavelengths: (B, N, patch_size) 
+        returns: transformed wavelengths (B, N)
+        """
+
+        # extract median wavelength per patch
+        wavelengths = wavelengths.median(dim=-1).values  # median wavelength per patch (B, N_patches)
+
+        if self.transform == 'none': # not preferred
+            wl = wavelengths
+        elif self.transform == 'log': # log-transform, scale factor to bring to reasonable range
+            wl = wavelengths / wavelengths.min(dim=1, keepdim=True).values
+            wl = torch.log(wl + 1e-9)
+        elif self.transform == 'minmax':
+            # min-max
+            wl_min = wavelengths.min(dim=1, keepdim=True).values
+            wl_max = wavelengths.max(dim=1, keepdim=True).values
+            wl = (wavelengths - wl_min) / (wl_max - wl_min + 1e-9)
+        else:
+            raise ValueError(f"Unknown transform type: {self.transform}")
+        return wl
+
+    def forward(self, wavelengths):
+        """
+        wavelengths: (B, N)
+        returns: (B, N, d_model)
+        """
+        B, N, P = wavelengths.shape
+        wl = self.get_wavelength_transform(wavelengths)  # (B, N, P) -> (B, N)
+        div_term = torch.exp(torch.arange(0, self.d_model, 2, device=wavelengths.device) * 
+                             -(math.log(self.base) / self.d_model))
+        div_term = div_term.unsqueeze(0).unsqueeze(0)  # (1, 1, d_model/2)
+        wl = wl.unsqueeze(-1)
+        pe = torch.zeros(B, N, self.d_model, device=wavelengths.device)
+        pe[..., 0::2] = torch.sin(self.scale_factor * wl * div_term)
+        pe[..., 1::2] = torch.cos(self.scale_factor * wl * div_term)
+        return pe
+
+# -----------------------------
+# Sinusoidal Positional Encoding
+# -----------------------------
+class SinusoidalPositionalEncoding(nn.Module):
+    def __init__(self, d_model, base=10_000, max_len=5000):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(base) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)  # (1, max_len, d_model)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        """
+        x: (B, N, d_model)
+        returns: (B, N, d_model) with positional encoding added
+        """
+        return self.pe[:, :x.size(1), :].to(x.device)
+
+class LearnablePositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=5000):
+        super().__init__()
+        self.pos_embedding = nn.Parameter(torch.randn(1, max_len, d_model))
+
+    def forward(self, x):
+        """
+        x: (B, N, d_model)
+        returns: (B, N, d_model) with positional encoding added
+        """
+        return self.pos_embedding[:, :x.size(1), :].to(x.device)
+    
+
+class NoPositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len):
+        super().__init__()
+        self.pe = torch.zeros(1, max_len, d_model, requires_grad=False)
+
+    def forward(self, x):
+        return self.pe[:, :x.size(1), :].to(x.device)
+    
+
 class MultiScalePositionalEmbedding(nn.Module):
     def __init__(self, d_model, patch_sizes, max_patches_per_scale=2048):
         super().__init__()
@@ -674,7 +771,8 @@ class FinalLayer(nn.Module):
 class SiT(nn.Module):
     def __init__(self, 
                  input_shape, output_dim, context_dim_first, context_dim_second,
-                 d_model, n_heads, num_layers, n_channels,
+                 d_model, n_heads, num_layers, n_channels, pe_type='sinusoidal',
+                 max_len=2048, scale_factor=1.0, base=10_000.0,
                  ffn_type='swiglu', ffn_hidden_mult=4, ffn_dropout=0.0,
                  use_qk_norm=True, learnable_qk_scale=True,
                  rope_type='standard', use_adaln=True
@@ -693,6 +791,15 @@ class SiT(nn.Module):
         self.output_dim = output_dim
         self.cls_token = nn.Parameter(torch.zeros(1,1,d_model))
         self.use_adaln = use_adaln
+
+        assert pe_type != 'wavelength', "Cannot use wavelength positional encoding here."
+        self.patch_pe = get_patch_positional_encoding(
+            pe_type=pe_type,
+            d_model=d_model,
+            max_len=max_len,
+            scale_factor=scale_factor,
+            base=base
+        )
 
         # AdaLN projections
         self.adaLN_first_proj = nn.Identity()
@@ -757,16 +864,18 @@ class SiT(nn.Module):
     ) -> torch.Tensor:
         B = x.size(0)
 
-        if x.dim() == 2:
-            x = x.unsqueeze(-1)
-        else:
-            x = x.view(B, self.n_channels, -1) # 512 or previous d_model
+        # if x.dim() == 2:
+        #     x = x.unsqueeze(-1)
+        # else:
+        x = x.view(B, -1, self.n_channels) # 512 or previous d_model
         # Linear projection
-            
         x = self.proj(x) # (B, N, d_model)
 
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat([cls_tokens, x], dim=1)
+
+        # Patch-positional embedding
+        x = x + self.patch_pe(x)  # (B, N, d_model)
 
         # Compute conditioning vector for AdaLN
         if self.use_adaln:
@@ -804,6 +913,22 @@ def get_mhca_block(mhca_block_type, d_model, n_heads, k=8, dilation=1, rope_modu
     else:
         raise ValueError(f"Unknown mhca_block_type: {mhca_block_type}")
 
+
+def get_patch_positional_encoding(
+    pe_type, d_model, max_len, transform='log', scale_factor=1.0, base=10_000.0
+):
+    if pe_type == 'wavelength':
+        return WavelengthPositionalEncoding(d_model, transform, scale_factor, base) # fixed but depends on wavelengths
+    elif pe_type == 'sinusoidal':
+        return SinusoidalPositionalEncoding(d_model, base=base, max_len=max_len) # fixed
+    elif pe_type == 'learnable':
+        return LearnablePositionalEncoding(d_model, max_len=max_len) # learned
+    elif pe_type == 'none':
+        return NoPositionalEncoding(d_model, max_len=max_len) # zeros
+    else:
+        raise ValueError(f"Unknown positional encoding type: {pe_type}")
+
+
 # -----------------------------
 # Hierarchical Multi-Scale Encoder
 # -----------------------------
@@ -811,8 +936,9 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
     def __init__(self, d_model=256, n_heads=4, k=4, n_layers_per_scale=2,
                  patch_sizes=[16,32,64], strides=[1, 2, 4], dilations=[2, 4, 8], 
                  mhsa_block_type='dilated', mhca_block_type='dilated',
-                 incremental_cross_attention=False, 
-                 use_ms_pos_embed=False, n_channels=1, rope_type='standard', 
+                 incremental_cross_attention=False, use_wavelength_token_embedding=False,
+                 pe_type='wavelength', max_len=2048, transform='log', scale_factor=1.0, base=10_000.0,
+                 n_channels=1, rope_type='standard', 
                  use_qk_norm=True, learn_qk_scale=False, pre_rms=True, post_rms=True,
                  ffn_type='swiglu', ffn_hidden_mult=4, ffn_dropout=0.0,
                  fusion_type='cross_attention', fusion_hidden=512):
@@ -822,7 +948,7 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
         self.patch_sizes = patch_sizes
         self.strides = strides
         self.dilations = dilations
-        self.use_ms_pos_embed = use_ms_pos_embed
+        self.use_wavelength_token_embedding = use_wavelength_token_embedding
         self.ffn_type = ffn_type
         self.post_rms = post_rms
         self.mhsa_block_type = mhsa_block_type
@@ -867,10 +993,20 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
                 d_model=d_model, 
                 stride=stride
             )
+            
+            patch_pe = get_patch_positional_encoding(
+                pe_type=pe_type,
+                d_model=d_model,
+                transform=transform,
+                max_len=max_len,
+                scale_factor=scale_factor,
+                base=base
+            )
 
             # Create a ModuleDict containing all modules for this scale
             scale_module = nn.ModuleDict({
                 'patch_embed': patch_embed,
+                'patch_pe': patch_pe,
                 'layers': layers
             })
 
@@ -891,11 +1027,6 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
             raise ValueError(f"Unknown fusion_type: {fusion_type}")
 
         self.fusion_type = fusion_type
-
-        #  Optional multi-scale positional embedding
-        if self.use_ms_pos_embed:
-            self.ms_pos_embed = MultiScalePositionalEmbedding(d_model, patch_sizes)
-        
         self.norm = RMSNorm(d_model)
 
     def forward(self, x):
@@ -903,31 +1034,34 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
         x = x.permute(0, 2, 1)
         wavelengths = x[:, :, -1]
 
+        if self.use_wavelength_token_embedding:
+            x = x + wavelengths.unsqueeze(-1)
+
         features_per_scale = []
         positions_per_scale = []
 
         for i, scale in enumerate(self.scales):
             patch_size = self.patch_sizes[i]
             stride = self.strides[i]
-            # N_patches = 1 + (N - patch_size) // stride
-
-            x_scale = scale['patch_embed'](x)
-
             w_patch = wavelengths.unfold(1, patch_size, stride)  # (B, N_patches, patch_size)
-            positions = w_patch.median(dim=-1).values # median wavelength per patch
-            positions = torch.log(positions / positions.min(dim=1, keepdim=True).values)
+
+            x_scale = scale['patch_embed'](x) # B, N_patches, d_model
+           
+           # patch-positional embedding
+            patch_pe = scale['patch_pe'](w_patch)
+            x_scale = x_scale + patch_pe
 
             for layer in scale['layers']:
                 x_scale = x_scale + layer['post_mhsa_rms'](
                     layer['mhsa'](
                         layer['pre_mhsa_rms'](x_scale), 
-                        positions, 
+                        patch_pe, 
                     )
                 )
                 x_scale = x_scale + layer['post_mhca_rms'](
                     layer['mhca'](
                         layer['pre_mhca_rms'](x_scale), 
-                        positions, 
+                        patch_pe, 
                         features_per_scale[-1] if (
                         self.incremental_cross_attention and i > 0
                         ) else None,
@@ -943,7 +1077,7 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
                 )
 
             features_per_scale.append(x_scale)
-            positions_per_scale.append(positions)
+            positions_per_scale.append(patch_pe)
 
         if self.incremental_cross_attention:
             return self.norm(features_per_scale[-1]).flatten(start_dim=1)
@@ -953,8 +1087,7 @@ class HierarchicalMultiScaleSpectralEncoder(nn.Module):
             fused = torch.cat(
                 features_per_scale, 
                 dim=1
-            ) if not self.use_ms_pos_embed else \
-                self.ms_pos_embed(features_per_scale)
+            ) # (B, total_patches, d_model)
         else:
             fused = features_per_scale[0]
             for f_coarse in features_per_scale[1:]:
@@ -971,26 +1104,29 @@ if __name__ == "__main__":
     x = torch.randn(B, C, N)
     wavelengths = torch.linspace(0.3, 2.4, N).unsqueeze(0).repeat(B, 1)
     encoder = HierarchicalMultiScaleSpectralEncoder(
-        d_model=256,
-        n_heads=8,
-        k=4,
-        n_layers_per_scale=8,
+        n_channels=3,
+        d_model=128,
+        n_heads=4,
+        n_layers_per_scale=2,
         patch_sizes=[2048, 4096, 8192, 16384],
         strides=[256, 512, 1024, 2048],
-        dilations=[2, 4, 8, 16],
-        n_channels=C,
         mhsa_block_type='classic',
         mhca_block_type='classic',
-        incremental_cross_attention=True,
-        fusion_type='concat',
-        fusion_hidden=512,
-        rope_type='wavelength',
-        use_ms_pos_embed=True,
-        ffn_type='geglu',
         pre_rms=True,
         post_rms=True,
         use_qk_norm=True,
-        learn_qk_scale=True
+        learn_qk_scale=False,
+        ffn_type='swiglu',
+        ffn_hidden_mult=4,
+        ffn_dropout=0.1,
+        rope_type='none',
+        use_wavelength_token_embedding=False,
+        max_len=2048,
+        pe_type='none',
+        transform='log',
+        scale_factor=1.0,
+        base=10000.0,
+        incremental_cross_attention=True,
     )
 
     summary(encoder, input_data=x, depth=8)
@@ -1001,22 +1137,41 @@ if __name__ == "__main__":
     # Example SiTSeqToVector
     # TODO: test when n_channels == 1, e.g., latents = output of a DenseResidualNet
     model = SiT(
-        input_shape=(512,),
+    #     input_shape=(512,),
+    #     output_dim=6,
+    #     context_dim_first=512,
+    #     context_dim_second=512,
+    #     d_model=256,
+    #     n_heads=4,
+    #     num_layers=12,
+    #     n_channels=1,
+    #     ffn_type='geglu',
+    #     ffn_hidden_mult=4,
+    #     ffn_dropout=0.0,
+    #     use_qk_norm=True,
+    #     learnable_qk_scale=True,
+    #     use_adaln=True,
+    #     rope_type='standard'
+        input_shape=(11904,),
         output_dim=6,
         context_dim_first=512,
         context_dim_second=512,
         d_model=256,
-        n_heads=4,
-        num_layers=12,
-        n_channels=1,
-        ffn_type='geglu',
+        n_heads=8,
+        num_layers=6,
+        n_channels=128,
+        pe_type='sinusoidal',
+        max_len=2048,
+        scale_factor=1.0,
+        base=10_000.0,
+        ffn_type='swiglu',
         ffn_hidden_mult=4,
-        ffn_dropout=0.0,
+        ffn_dropout=0.1,
         use_qk_norm=True,
-        learnable_qk_scale=True,
+        learnable_qk_scale=False,
+        rope_type='none',
         use_adaln=True,
-        rope_type='standard'
     )
-    summary(model, input_data=[torch.randn(B, 512), torch.randn(B,512), torch.randn(B,512)], depth=6)
-    out = model(torch.randn(B, 512), None, torch.randn(B,512))
+    summary(model, input_data=[torch.randn(B, 11904), torch.randn(B,512), torch.randn(B,512)], depth=6)
+    out = model(torch.randn(B, 11904), torch.randn(B,512), torch.randn(B,512))
     print(out.shape)    

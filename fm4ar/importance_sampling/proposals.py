@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from fm4ar.datasets.theta_scalers import get_theta_scaler
+from fm4ar.datasets.scalers.theta_scalers import get_theta_scaler
 from fm4ar.importance_sampling.config import ImportanceSamplingConfig
 from fm4ar.models.build_model import build_model
 from fm4ar.nn.flows import create_unconditional_flow_wrapper

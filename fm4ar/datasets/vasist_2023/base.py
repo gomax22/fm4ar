@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 from pathlib import Path
 
 from fm4ar.datasets.data_transforms import DataTransform
-from fm4ar.datasets.theta_scalers import IdentityScaler, ThetaScaler
+from fm4ar.datasets.scalers.theta_scalers import IdentityScaler, ThetaScaler
 from fm4ar.datasets import DatasetConfig
 from pydantic import BaseModel, Field
 
