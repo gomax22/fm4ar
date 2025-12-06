@@ -8,9 +8,9 @@ from typing import Any, Type
 
 import torch
 import torch.nn as nn
+from fvcore.nn import FlopCountAnalysis
 
 from fm4ar.nn.modules import Sine
-
 
 def check_for_nans(x: torch.Tensor, label: str = "tensor") -> None:
     """
@@ -88,6 +88,31 @@ def get_number_of_parameters(
         if p.requires_grad in requires_grad_flags:
             num_params += prod(p.size())
     return num_params
+
+def get_flops(
+    model: nn.Module,
+    inputs: tuple[
+        torch.Tensor, 
+        torch.Tensor,
+        dict[str, torch.Tensor],
+        torch.Tensor | None
+    ],
+) -> int:
+    """
+    Compute FLOPs (floating point operations) for a PyTorch model.
+
+    Args:
+        model: nn.Module
+        inputs: tuple of inputs to the model
+            t: torch.Tensor
+            theta: torch.Tensor
+            context: dict[str, torch.Tensor]
+            aux_data: torch.Tensor | None
+
+    Returns:
+        flops (int): raw FLOP count
+    """
+    return FlopCountAnalysis(model, inputs).total()
 
 
 def resolve_device(device: str) -> torch.device:
