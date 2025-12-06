@@ -273,7 +273,7 @@ def draw_samples_from_ml_model(
         "log_prob_samples": log_prob_samples.numpy(),
         "log_probs_true_thetas": log_probs_true_thetas.numpy(),
         "avg_loss": loss_info.get_avg(),
-        "profiler": model.profiler,
+        "profiler": model.profiler if hasattr(model, "profiler") else None,
     }
 
 

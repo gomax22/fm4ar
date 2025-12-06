@@ -201,10 +201,12 @@ if __name__ == "__main__":
         print("Done.\n")
 
         # Print summary
-        print("Showing merged NFE profiler summary:")
-        pprint(profiler.summary())
-        print("Done.\n")
-        
+        if profiler is not None:
+            print("Showing merged NFE profiler summary:")
+            pprint(profiler.summary())
+            print("Done.\n")
+        else:
+            print("No profiler data found to merge.\n")    
     # -------------------------------------------------------------------------
     # Postliminaries
     # -------------------------------------------------------------------------

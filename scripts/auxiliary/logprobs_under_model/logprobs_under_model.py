@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm.auto import tqdm
 
-from fm4ar.datasets.theta_scalers import ThetaScaler, get_theta_scaler
+from fm4ar.datasets.scalers.theta_scalers import ThetaScaler, get_theta_scaler
 from fm4ar.models.build_model import build_model
 from fm4ar.models.fmpe import FMPEModel
 from fm4ar.models.npe import NPEModel
