@@ -29,6 +29,19 @@ def measure_time(
             times.append(time_seconds)
 
     total_time = sum(times)
+    
+    # Exceptional cases
+    if total_time == 0:
+        times = []
+        for line in lines:
+            if "t_model" in line:
+                # Extract the time in seconds
+                parts = line.strip().split(" ")
+                t_model_time = float(parts[-4])
+                t_data_time = float(parts[-13])
+                times.append(t_model_time + t_data_time)
+        total_time = sum(times) / 1e3  # Convert ms to s
+
     return total_time
 
 def measure_experimental_times(
