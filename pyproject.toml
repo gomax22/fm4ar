@@ -28,6 +28,7 @@ dependencies = [
     "torchinfo==1.8.0",
     "seaborn<=0.12.3",
     "pytorch-ignite==0.5.3",
+    "fvcore==0.1.5.post20221221",
 
     # Pinned dependencies
     "chainconsumer==1.1.1",
