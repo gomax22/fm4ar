@@ -251,7 +251,7 @@ class INAFDataset(Dataset):
             labels.remove('planet_ID')
             return labels
         except FileNotFoundError:
-            raise FileNotFoundError(f"File {self.aux_data} not found.")
+            raise FileNotFoundError(f"File {self.theta} not found.")
         
     def get_parameters_dim(self) -> int:
         assert self.theta.endswith('.csv'), "File must be a .csv file"
@@ -261,7 +261,7 @@ class INAFDataset(Dataset):
             theta = theta.drop(columns=['planet_ID'])
             return theta.shape[1]
         except FileNotFoundError:
-            raise FileNotFoundError(f"File {self.aux_data} not found.")
+            raise FileNotFoundError(f"File {self.theta} not found.")
         
     def get_aux_data_labels(self) -> List[str]:
         assert self.aux_data.endswith('.csv'), "File must be a .csv file"
