@@ -190,6 +190,16 @@ def get_mean_and_std(dataset: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
             mean = norm_params["instrument_spectrum"]["train"]["mean"]
             std = norm_params["instrument_spectrum"]["train"]["std"]
             del norm_params
+        case "inara_subset":
+            from fm4ar.datasets.inara_subset import load_normalization_params
+            norm_params = load_normalization_params(
+                file_path=expand_env_variables_in_path(
+                    kwargs.get("file_path", None)
+                )
+            )
+            mean = norm_params["instrument_spectrum"]["train"]["mean"]
+            std = norm_params["instrument_spectrum"]["train"]["std"]
+            del norm_params
         case _:
             raise ValueError(f"Unknown dataset: {dataset}")
         
@@ -203,6 +213,16 @@ def get_min_and_max(dataset: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
     match dataset:
         case "inaf":
             from fm4ar.datasets.inaf import load_normalization_params
+            norm_params = load_normalization_params(
+                file_path=expand_env_variables_in_path(
+                    kwargs.get("file_path", None)
+                )
+            )
+            minimum = norm_params["instrument_spectrum"]["train"]["min"]
+            maximum = norm_params["instrument_spectrum"]["train"]["max"]
+            del norm_params
+        case "inara_subset":
+            from fm4ar.datasets.inara_subset import load_normalization_params
             norm_params = load_normalization_params(
                 file_path=expand_env_variables_in_path(
                     kwargs.get("file_path", None)
