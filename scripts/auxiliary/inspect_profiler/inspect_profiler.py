@@ -218,9 +218,9 @@ if __name__ == "__main__":
         handles = [
             plt.Line2D([0], [0], color='black', lw=1.0, linestyle='dashed', label='Uniform Distribution'),
             plt.Line2D([0], [0], color='red', lw=1.0, linestyle='solid', label='Observed Distribution'),
-            plt.Rectangle((0,0),1,1, color='red', alpha=0.1, label='1σ (68.2%)'),
+            plt.Rectangle((0,0),1,1, color='red', alpha=0.5, label='1σ (68.2%)'),
             plt.Rectangle((0,0),1,1, color='red', alpha=0.3, label='2σ (95.4%)'),
-            plt.Rectangle((0,0),1,1, color='red', alpha=0.5, label='3σ (99.7%)'),            
+            plt.Rectangle((0,0),1,1, color='red', alpha=0.1, label='3σ (99.7%)'),            
         ]
         ax.legend(handles=handles)
         fig.savefig(

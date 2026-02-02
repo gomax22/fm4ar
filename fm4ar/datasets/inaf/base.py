@@ -23,6 +23,16 @@ RSOL = 696340000
 MSOL = 1.989e30
 
 
+LABELS = {
+    'planet_temp': r"$\mathrm{T_p}$",
+    'log_H2O': r"$\log \mathrm{H_2O}$", 
+    'log_CO2': r"$\log \mathrm{CO_2}$", 
+    'log_CO': r"$\log \mathrm{CO}$",
+    'log_CH4': r"$\log \mathrm{CH_4}$", 
+    'log_NH3': r"$\log \mathrm{NH_3}$"
+}
+
+
 def load_normalization_params(
     file_path: str,
 ) -> dict[str, np.ndarray]:
@@ -225,64 +235,70 @@ class INAFDataset(Dataset):
             # Load parameters
             theta = pd.read_csv(self.theta)
 
-            # Drop planet_ID column if specified
-            theta = theta.drop(columns=['planet_ID']) if skip_planet_index_col else theta
-            
-            # Convert to numpy array
-            theta = theta.to_numpy(dtype=np.float32)
-
-            # Return requested indices
-            if indices is None:
-                if self.split_file is not None:
-                    return theta[self.split_file, :]
-                else:
-                    return theta
-            else:
-                return theta[indices, :] 
         except FileNotFoundError:
             raise FileNotFoundError(f"File {self.aux_data} not found.")
+        # Drop planet_ID column if specified
+        theta = theta.drop(columns=['planet_ID']) if skip_planet_index_col else theta
+        
+        # Convert to numpy array
+        theta = theta.to_numpy(dtype=np.float32)
+
+        # Return requested indices
+        if indices is None:
+            if self.split_file is not None:
+                return theta[self.split_file, :]
+            else:
+                return theta
+        else:
+            return theta[indices, :] 
 
     def get_parameters_labels(self) -> List[str]:
         assert self.theta.endswith('.csv'), "File must be a .csv file"
         
         try:
             theta = pd.read_csv(self.theta)
-            labels = theta.columns.tolist()
-            labels.remove('planet_ID')
-            return labels
         except FileNotFoundError:
             raise FileNotFoundError(f"File {self.theta} not found.")
         
+        columns = theta.columns.tolist()
+        columns.remove('planet_ID')
+        labels = [v for k,v in LABELS.items() if k in columns]
+        if self.predict_log_temperature:
+            labels[0] = r"$\log \mathrm{T_p}$"
+        return labels
+            
+
     def get_parameters_dim(self) -> int:
         assert self.theta.endswith('.csv'), "File must be a .csv file"
         
         try:
             theta = pd.read_csv(self.theta)
-            theta = theta.drop(columns=['planet_ID'])
-            return theta.shape[1]
         except FileNotFoundError:
             raise FileNotFoundError(f"File {self.theta} not found.")
+        
+        theta = theta.drop(columns=['planet_ID'])
+        return theta.shape[1]
         
     def get_aux_data_labels(self) -> List[str]:
         assert self.aux_data.endswith('.csv'), "File must be a .csv file"
         
         try:
             aux_data = pd.read_csv(self.aux_data)
-            labels = aux_data.columns.tolist()
-            labels.remove('planet_ID')
-            return labels
         except FileNotFoundError:
             raise FileNotFoundError(f"File {self.aux_data} not found.")
+        labels = aux_data.columns.tolist()
+        labels.remove('planet_ID')
+        return labels
         
     def get_aux_data_dim(self) -> int:
         assert self.aux_data.endswith('.csv'), "File must be a .csv file"
         
         try:
             aux_data = pd.read_csv(self.aux_data)
-            aux_data = aux_data.drop(columns=['planet_ID'])
-            return aux_data.shape[1]
         except FileNotFoundError:
             raise FileNotFoundError(f"File {self.aux_data} not found.")
+        aux_data = aux_data.drop(columns=['planet_ID'])
+        return aux_data.shape[1]
     
     def get_aux_data(
         self,
@@ -298,33 +314,33 @@ class INAFDataset(Dataset):
             # Load auxiliary data
             aux_data = pd.read_csv(self.aux_data)
 
-            # Convert units
-            aux_data['star_radius_m'] = aux_data['star_radius_m'] / RSOL
-            aux_data['planet_radius_m'] = aux_data['planet_radius_m'] / RJUP
-            aux_data['planet_mass_kg'] = aux_data['planet_mass_kg'] / MJUP
-            aux_data['star_mass_kg'] = aux_data['star_mass_kg'] / MSOL
-
-            # To be consistent with theta, take log10 of star_temperature when
-            # predicting log temperature
-            if self.predict_log_temperature:
-                aux_data['star_temperature'] = np.log10(aux_data['star_temperature'])
-
-            # Drop planet_ID column if specified
-            aux_data = aux_data.drop(columns=['planet_ID']) if skip_planet_index_col else aux_data
-            
-            # Convert to numpy array
-            aux_data = aux_data.to_numpy(dtype=np.float32)
-
-            # Return requested indices
-            if indices is None:
-                if self.split_file is not None:
-                    return aux_data[self.split_file, :]
-                else:
-                    return aux_data
-            else:
-                return aux_data[indices, :]
         except FileNotFoundError:
             raise FileNotFoundError(f"File {self.aux_data} not found.")
+        # Convert units
+        aux_data['star_radius_m'] = aux_data['star_radius_m'] / RSOL
+        aux_data['planet_radius_m'] = aux_data['planet_radius_m'] / RJUP
+        aux_data['planet_mass_kg'] = aux_data['planet_mass_kg'] / MJUP
+        aux_data['star_mass_kg'] = aux_data['star_mass_kg'] / MSOL
+
+        # To be consistent with theta, take log10 of star_temperature when
+        # predicting log temperature
+        if self.predict_log_temperature:
+            aux_data['star_temperature'] = np.log10(aux_data['star_temperature'])
+
+        # Drop planet_ID column if specified
+        aux_data = aux_data.drop(columns=['planet_ID']) if skip_planet_index_col else aux_data
+        
+        # Convert to numpy array
+        aux_data = aux_data.to_numpy(dtype=np.float32)
+
+        # Return requested indices
+        if indices is None:
+            if self.split_file is not None:
+                return aux_data[self.split_file, :]
+            else:
+                return aux_data
+        else:
+            return aux_data[indices, :]
 
 
     def _load_data_split(self, split: str, limit: int = None) -> None:

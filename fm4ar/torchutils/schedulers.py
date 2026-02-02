@@ -98,6 +98,7 @@ def perform_scheduler_step(
         lrs.ExponentialLR: "epoch",
         lrs.StepLR: "epoch",
         lrs.ReduceLROnPlateau: "epoch",
+        lrs.LinearLR: "batch",
     }
 
     # Make sure we know how to handle the end_of argument

@@ -447,7 +447,12 @@ class FMPEModel(Base):
         """
         Sample `theta_0` from a standard Gaussian prior.
         """
-
+        # return torch.cat((
+        #     torch.randn(num_samples, 1, device=self.device),
+        #     torch.rand(num_samples, self.dim_theta - 1, device=self.device) # * 6.0 - 3.0
+        # ), dim=1)
+    
+        # return torch.rand(num_samples, self.dim_theta, device=self.device) 
         return torch.randn(num_samples, self.dim_theta, device=self.device)
 
     @staticmethod

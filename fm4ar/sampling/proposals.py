@@ -185,6 +185,15 @@ def draw_samples_from_ml_model(
 
             # Move data to device
             theta, context, aux_data = move_batch_to_device(batch, model.device)
+
+            # PURE NOISE ABLATION
+            # theta = torch.randn_like(theta)  # Dummy theta for loss computation
+            # context = {k : torch.randn_like(v) for k, v in context.items()}
+            # aux_data = (
+            #     torch.randn_like(aux_data)
+            #     if aux_data is not None else None
+            # )
+
             bsz = theta.shape[0]
             
             # Compute test loss

@@ -63,18 +63,18 @@ def run_on_gpu(rank, args, config, job_ids):
     )
     print("Done.\n")
 
+    if profiler is not None:
+        print("Showing NFE profiler summary:")
+        pprint(profiler.summary())
+        print("Done.\n")
 
-    print("Showing NFE profiler summary:")
-    pprint(profiler.summary())
-    print("Done.\n")
-
-    print("Exporting NFE profiler data...", end=" ", flush=True)
-    # TODO: make output format configurable
-    output_file_path = args.experiment_dir / f"nfe-profile-{job_id:04d}.pkl"
-    profiler.export(
-        file_path=output_file_path,
-    )
-    print("Done.\n")
+        print("Exporting NFE profiler data...", end=" ", flush=True)
+        # TODO: make output format configurable
+        output_file_path = args.experiment_dir / f"nfe-profile-{job_id:04d}.pkl"
+        profiler.export(
+            file_path=output_file_path,
+        )
+        print("Done.\n")
     print(f"[GPU {gpu_id}] Finished job {job_id}.\n")
     return
 
@@ -197,7 +197,10 @@ if __name__ == "__main__":
         print("Done.\n")
 
         print("Creating merged NFE profiler from history...", flush=True)
-        profiler = NFEProfiler.from_history(all_histories)
+        if all_histories is None or len(all_histories) == 0:
+            profiler = None
+        else:
+            profiler = NFEProfiler.from_history(all_histories)
         print("Done.\n")
 
         # Print summary

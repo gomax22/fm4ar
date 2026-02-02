@@ -561,21 +561,33 @@ def draw_corner_plots(
         if isinstance(config.max_plots, int)
         else len(posterior_samples)
     )
-    with tqdm(total=num_corners, desc="Making corner plots...") as pbar:
-        for idx, (p_samples, theta) in enumerate(zip(posterior_samples, thetas)):
-            if idx >= num_corners:
-                break
-            corner_plot_single_distribution(
-                posterior_samples=p_samples,
-                theta=theta,
-                labels=test_dataset.get_parameters_labels(),
-                output_fname=output_dir / f"corner_{idx}",
-                label_kwargs=config.label_kwargs,
-                title_kwargs=config.title_kwargs,
-                legend_kwargs=config.legend_kwargs,
-                offset=config.offset,
-            )
-            pbar.update(1)
+
+    # 1723
+    # corner_plot_single_distribution(
+    #     posterior_samples=posterior_samples[1723, :, :],
+    #     theta=thetas[1723, :],
+    #     labels=test_dataset.get_parameters_labels(),
+    #     output_fname=output_dir / "corner_1723",
+    #     label_kwargs=config.label_kwargs,
+    #     title_kwargs=config.title_kwargs,
+    #     legend_kwargs=config.legend_kwargs,
+    #     offset=config.offset,
+    # )
+    # with tqdm(total=num_corners, desc="Making corner plots...") as pbar:
+    #     for idx, (p_samples, theta) in enumerate(zip(posterior_samples, thetas)):
+    #         if idx >= num_corners:
+    #             break
+    #         corner_plot_single_distribution(
+    #             posterior_samples=p_samples,
+    #             theta=theta,
+    #             labels=test_dataset.get_parameters_labels(),
+    #             output_fname=output_dir / f"corner_{idx}",
+    #             label_kwargs=config.label_kwargs,
+    #             title_kwargs=config.title_kwargs,
+    #             legend_kwargs=config.legend_kwargs,
+    #             offset=config.offset,
+    #         )
+    #         pbar.update(1)
     
     # plot corner plot
     corner_plot_prior_posterior(

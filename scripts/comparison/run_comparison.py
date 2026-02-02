@@ -1,13 +1,20 @@
+import os
 import argparse
 from time import time
 import pandas as pd
+import numpy as np
 
 from typing import Optional
 from pathlib import Path
 from yaml import safe_load
 from tqdm import tqdm
 
+from fm4ar.datasets import load_dataset
 from fm4ar.utils.paths import expand_env_variables_in_path
+from fm4ar.evaluation.calibration import plot_regression_diagrams
+from fm4ar.evaluation.corners import corner_plot_prior_posteriors, corner_plot_multiple_distributions
+from fm4ar.utils.config import load_config as load_experiment_config
+
 
 # for each experiment:
     # load regression, calibration, coverage, log probs results
@@ -177,6 +184,117 @@ def merge_log_probs_true_thetas(config: dict, output_dir: Path) -> Optional[pd.D
     )
 
 
+def load_posteriors(
+    config: dict,
+    relative_file_path="posterior_distribution.npy",
+):
+    posteriors = []
+    pbar = tqdm(config['estimators'], desc=f"Loading posteriors")
+
+    for estimator, experiment in config['estimators'].items():
+        exp_name = estimator.upper()
+        results_path = expand_env_variables_in_path(experiment['experiment-dir'])
+        file_path = results_path / relative_file_path
+
+        if not file_path.exists():
+            print(f"\nWARNING: Posterior file not found for {exp_name} at {file_path}")
+            pbar.update(1)
+            continue
+        posterior = np.load(file_path)
+        posteriors.append(posterior)
+        pbar.update(1)
+
+    pbar.close()
+    return posteriors
+
+def plot_diagrams(
+    config: dict, 
+    output_dir: Path,
+):
+    
+    # load dataset to get thetas and labels
+        # Ensure output directory exists
+    if not output_dir.exists():
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load posteriors
+    print("Loading posteriors...", end=' ', flush=True)
+    posteriors = load_posteriors(config)
+    print("Done!", flush=True)
+
+    if not posteriors:
+        print(f"No valid files found for plotting diagrams. Skipping plots.")
+        return None
+    
+    posteriors = np.stack(posteriors, axis=0)
+
+
+    # Load thetas
+    # Load experiment config
+    print("Loading test dataset...", end=' ', flush=True)
+    _, _, test_dataset = load_dataset(
+        load_experiment_config(
+            experiment_dir=Path(
+                expand_env_variables_in_path(
+                    config['estimators'][list(config['estimators'].keys())[0]]['experiment-dir']
+                )
+            )
+        )
+    )
+    print("Done!", flush=True)
+    # train_dataset, _, test_dataset = load_dataset(config=experiment_config)
+    thetas = test_dataset.get_parameters()
+    labels = test_dataset.get_parameters_labels()
+    print("Done!", flush=True)
+
+    # load colors from config
+    colors = [v['color'] for k,v in config['estimators'].items()]
+
+    # model lables from estimators name ?
+    model_labels = [k.upper() for k in config['estimators'].keys()]
+
+    # corner plot with multiple full posteriors 
+    # print("Plotting corner plot prior vs posteriors...", end=' ', flush=True)
+    # corner_plot_prior_posteriors(
+    #     posteriors=posteriors[..., :7],
+    #     thetas=thetas[..., :7],
+    #     labels=labels[:7],
+    #     colors=colors,
+    #     model_labels=model_labels,
+    #     output_fname=os.path.join(
+    #         output_dir, 
+    #         'corner_plot.pdf'
+    #     )
+    # )
+    # print("Done!", flush=True)
+    print("Plotting corner plot multiple conditional distributions...", end=' ', flush=True)
+    corner_plot_multiple_distributions(
+        posteriors=posteriors[:, 1723, :, :].reshape(len(posteriors), 1, posteriors.shape[2], posteriors.shape[3]),
+        thetas=thetas[1723, :].reshape(1, -1),
+        labels=labels,
+        colors=colors,
+        model_labels=model_labels,
+        output_dir=os.path.join(
+            output_dir, 
+            'corners'
+        )
+    )
+    print("Done!", flush=True)
+
+    # diagrams with multiple posteriors
+    print("Plotting regression diagrams...", end=' ', flush=True)
+    plot_regression_diagrams(
+        posteriors=posteriors,
+        thetas=thetas,
+        labels=labels,
+        colors=colors, 
+        model_labels=model_labels,
+        output_dir=os.path.join(
+            output_dir, 
+        )
+    )
+    print("Done!", flush=True)
+
 
 if __name__ == "__main__":
     script_start = time()
@@ -288,6 +406,20 @@ if __name__ == "__main__":
         output_dir
     )
     print("Done!\n\n")
+
+
+    # -------------------------------------------------
+    # Stage 6: Plot diagrams
+    # -------------------------------------------------
+    print(80 * "-", flush=True)
+    print("(6) Plot comparison diagrams", flush=True)
+    print(80 * "-" + "\n", flush=True)
+
+    plot_diagrams(
+        config,
+        output_dir,
+    )
+
 
 
     # Print the total runtime
