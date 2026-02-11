@@ -117,9 +117,11 @@ if __name__ == "__main__":
     )
 
     # Load the trained model
-    # Measuring inference times should be a good practice to do before starting a training run,
-    # to make sure that the model can run on the target hardware and to get an estimate of how long sampling will take.
-    # This is especially important for the FMPE model.
+    # Measuring inference times should be a good practice to do before starting a training run, 
+    # This makes us sure that 
+    # ( i) the model can run on the target hardware and,
+    # (ii) we can get an estimate of how long sampling will take.
+    # This is especially important for the FMPE model and particularly for adaptive ODE solvers.
     # Clearly, before training the model, we cannot use the checkpoint file to make a precise estimate.
     # However, we can still load the model architecture and measure the inference time with random weights, 
     # hopefully getting a rough estimate of the inference time.
@@ -162,14 +164,14 @@ if __name__ == "__main__":
     vram_usage: dict[str, list[float]] = {}
     for label, method, kwargs in [
         (
-            "sample",
-            model.sample_batch,
-            model_kwargs # config["model"]["sample_kwargs"],
-        ),
-        (
             "sample_and_log_prob",
             model.sample_and_log_prob_batch,
             model_kwargs # config["model"]["sample_and_logprob_kwargs"],
+        ),
+        (
+            "sample",
+            model.sample_batch,
+            model_kwargs # config["model"]["sample_kwargs"],
         ),
     ]:
         # TODO: make an estimate of VRAM usage and print it here, to make sure it fits on the target GPU
@@ -200,7 +202,6 @@ if __name__ == "__main__":
 
                     method(context=chunk_context, aux_data=chunk_aux_data, **kwargs)
                     # print(f"[{chunk_sizes[:j+1].sum():3d}/{n_samples:3d}] Done!", flush=True)
-
 
                 total_time = time() - start_time
                 vram = torch.cuda.memory_allocated() / 1024**3
