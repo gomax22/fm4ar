@@ -191,16 +191,17 @@ if __name__ == "__main__":
                     start_time = time()
                     
                     # Repeat the context to match the desired chunk size and move it to the GPU
-                    chunk_context = {
-                        k: v.repeat_interleave(n, dim=0)
-                        for k, v in context.items()
-                    }
-                    chunk_aux_data = (
-                        aux_data.repeat_interleave(n, dim=0) 
-                        if aux_data is not None else None
+                    method(
+                        context={
+                            k: v.repeat_interleave(n, dim=0)
+                            for k, v in context.items()
+                        }, 
+                        aux_data=(
+                            aux_data.repeat_interleave(n, dim=0) 
+                            if aux_data is not None else None
+                        ),
+                        **kwargs
                     )
-
-                    method(context=chunk_context, aux_data=chunk_aux_data, **kwargs)
                     # print(f"[{chunk_sizes[:j+1].sum():3d}/{n_samples:3d}] Done!", flush=True)
 
                 total_time = time() - start_time
