@@ -5,6 +5,7 @@ parameters without starting a training run.
 import torch
 import pandas as pd
 
+from typing import Optional
 from argparse import ArgumentParser
 from pathlib import Path
 from time import time
@@ -23,7 +24,7 @@ from fm4ar.utils.config import load_config
 
 def count_parameters_and_flops(
     experiment_dir: Path,
-    checkpoint_name: str = "model__best.pt",
+    checkpoint_name: Optional[str] = None,
 ) -> tuple[str, int, int]:
     
     experiment_name = experiment_dir.name
@@ -50,7 +51,7 @@ def count_parameters_and_flops(
     config["model"]["dim_auxiliary_data"] = test_dataset.dim_auxiliary_data
 
     # Instantiate the posterior model
-    file_path = experiment_dir / checkpoint_name
+    file_path = experiment_dir / checkpoint_name if checkpoint_name else None
     model = build_model(
         experiment_dir=experiment_dir,
         file_path=file_path,
@@ -135,7 +136,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint-name",
         type=str,
-        default="model__best.pt",
+        default=None,
         help="Name of the model checkpoint file.",
     )
     args = parser.parse_args()
