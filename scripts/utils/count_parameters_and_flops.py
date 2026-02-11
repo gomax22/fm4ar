@@ -2,6 +2,7 @@
 Instantiate a model from a config file and count the number of
 parameters without starting a training run.
 """
+import os
 import torch
 import pandas as pd
 
@@ -55,6 +56,7 @@ def count_parameters_and_flops(
     model = build_model(
         experiment_dir=experiment_dir,
         file_path=file_path,
+        config=config,
         device=config["local"]["device"],
     )
 
@@ -95,18 +97,22 @@ def collect_experiment_info(
 
     root = Path(root_dir)
 
-    # Traverse recursively
-    experiment_dirs = tqdm(list(root.glob("*/*/*")), desc="Processing experiments")
+    # List all subdirectories in the root directory
+    experiment_dirs = tqdm(
+        [d for d in root.iterdir() if d.is_dir()],
+        desc="Processing experiments"
+    )
 
 
     # TODO: Parallelize this loop if needed
     for experiment_dir in experiment_dirs:
-        ckpt = experiment_dir / checkpoint_name
-        if not ckpt.exists():
-            continue
+        # ckpt = experiment_dir / checkpoint_name
+        # if not ckpt.exists():
+        #     continue
+        # print(f"\nProcessing {experiment_dir}...", flush=True)
 
         experiment_name, n_total_params, flops = count_parameters_and_flops(
-            experiment_dir=experiment_dir,
+            experiment_dir=Path(experiment_dir),
             checkpoint_name=checkpoint_name,
         )
 
