@@ -237,6 +237,9 @@ if __name__ == "__main__":
         "method": [model_kwargs.get("method", "N/A") for label in times.keys() for _ in times[label]],
         "num_steps": [model_kwargs.get("num_steps", "N/A") for label in times.keys() for _ in times[label]],
         "tolerance": [model_kwargs.get("tolerance", "N/A") for label in times.keys() for _ in times[label]],
+        "chunk_size": [chunk_size for label in times.keys() for _ in times[label]],
+        "n_samples": [n_samples for label in times.keys() for _ in times[label]],
+        "batch_size": [1 for label in times.keys() for _ in times[label]],
     })
     df.to_csv(
         args.experiment_dir / "estimated_inference_time_and_vram_usage.csv", 
