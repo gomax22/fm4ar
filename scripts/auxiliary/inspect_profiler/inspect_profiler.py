@@ -50,7 +50,7 @@ if __name__ == "__main__":
     # 1. Total number of function calls (NFEs) per each method
     pprint(profiler.summary()) # effective time_sec should be divided by the number of jobs 
 
-    # 2. Average number of NFEs per call
+    # 2.1 Average number of NFEs per call
     summary_dict = defaultdict(lambda: [])
     for batch in profiler.history:
         key = batch["profile"][0]["key"]
@@ -116,7 +116,61 @@ if __name__ == "__main__":
         )   
         plt.close(fig)
 
-    # 5. More plots on timesteps using histograms
+    # 5. More plots
+    summary_dict = defaultdict(lambda: [])
+    pbar = tqdm(total=len(profiler.history), desc="Collecting trajectories")
+    for batch in profiler.history:
+        key = batch["profile"][0]["key"]
+        summary_dict[key].append([batch['profile'][idx]['t'] for idx in range(len(batch['profile']))])
+        pbar.update(1)
+    pbar.close()
+
+
+    Path(output_dir / "trajectories").mkdir(parents=True, exist_ok=True)
+
+    for key in summary_dict:
+        pbar = tqdm(total=len(summary_dict[key][:10]), desc=f"Plotting trajectories for {key}")
+        for idx, traj in enumerate(summary_dict[key][:10]):
+            fig, ax = plt.subplots(1, 1, figsize=(8,8))
+            # print(traj)
+
+            ax.plot(traj, color='purple', lw=1.0, label='Adaptive-step Trajectories')
+
+            ax.set_title(f"Trajectories for Key: {key}")
+            ax.set_xlabel("#Timesteps")
+            ax.set_ylabel("Trajectory")
+            ax.grid(alpha=0.5)
+            plt.show()
+
+            # grid = np.linspace(0, 1, 10)
+            # min_traj_length = min([len(traj) for traj in summary_dict[key]])
+
+            # plot the uniform distribution for reference
+            # grid = np.linspace(0, , len(traj))
+            ax.plot(
+                np.linspace(0, len(traj), 10), 
+                np.linspace(0, 1, 10), color='black', linestyle='dashed', lw=1.0, label='Fixed-step Trajectory')
+            # ax.axvline(x=min_traj_length, color='black', linestyle='dashed', lw=1.0, label='Min Trajectory Length')
+
+
+
+            handles = [
+                plt.Line2D([0], [0], color='black', lw=1.0, linestyle='dashed', label='Fixed-step Trajectory'),
+                plt.Line2D([0], [0], color='purple', lw=1.0, linestyle='solid', label='Adaptive-step Trajectories'),
+            ]
+            ax.legend(handles=handles)
+            fig.savefig(
+                output_dir / "trajectories" / f"trajectories_{key.replace('/', '_')}_{idx}.png"
+            )   
+            plt.close(fig)
+
+
+
+            pbar.update(1)
+        pbar.close()
+ 
+
+
 
     # For each key, collect all time steps
     summary_dict = defaultdict(lambda: defaultdict(lambda: 0))
