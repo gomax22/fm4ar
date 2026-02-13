@@ -61,6 +61,10 @@ AUX_DATA = {
     28: "planet's_mean_surface_albedo_(unitless)"
 }
 
+def parse_components(arg):
+    return arg.split(',')
+
+
 def get_parameters(
     parameters_dir: Path,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]: 
@@ -203,15 +207,19 @@ def draw_indices(
     val_fraction: float,
     test_fraction: float,
     seed: int,
+    num_test_samples: int = None,
 ) -> tuple[list[int], list[int], list[int]]:
     """
     Draw random sample indices without replacement for each split.
     """
-    assert math.isclose(train_fraction + val_fraction + test_fraction, 1.0, rel_tol=1e-9), \
-        "Fractions must sum to 1.0"
+    if num_test_samples is None:
+        assert math.isclose(train_fraction + val_fraction + test_fraction, 1.0, rel_tol=1e-9), \
+            "Fractions must sum to 1.0"
     assert num_samples <= NUM_INARA_SAMPLES, \
         f"Number of samples ({num_samples}) in the subset must be less than or equal to \
         the total number of samples in the dataset ({NUM_INARA_SAMPLES})"
+    assert num_test_samples is None or num_test_samples <= num_samples, \
+        "Number of test samples must be less than or equal to the total number of samples"
 
     random.seed(seed)
     np.random.seed(seed)
@@ -220,15 +228,26 @@ def draw_indices(
     sampled_indices = np.random.choice(
         all_indices, size=num_samples, replace=False
     )
-    num_train = int(num_samples * train_fraction)
-    num_val = int(num_samples * val_fraction)
-    num_test = num_samples - num_train - num_val
-    train_indices = sampled_indices[:num_train]
-    val_indices = sampled_indices[num_train:num_train + num_val]
-    test_indices = sampled_indices[num_train + num_val:]
+    if num_test_samples is not None:
+        test_indices = sampled_indices[:num_test_samples]
+        remaining_indices = sampled_indices[num_test_samples:]
+        remaining_num_samples = num_samples - num_test_samples
+
+        num_train = int(remaining_num_samples * train_fraction)
+        num_val = remaining_num_samples - num_train
+        train_indices = remaining_indices[:num_train]
+        val_indices = remaining_indices[num_train:]
+
+    else:
+
+        num_train = int(num_samples * train_fraction)
+        num_val = int(num_samples * val_fraction)
+        num_test = num_samples - num_train - num_val
+        train_indices = sampled_indices[:num_train]
+        val_indices = sampled_indices[num_train:num_train + num_val]
+        test_indices = sampled_indices[num_train + num_val:]
 
     return train_indices, val_indices, test_indices
-
 
 def draw_subset(
     data_dir: Path,
@@ -238,6 +257,8 @@ def draw_subset(
     val_fraction: float,
     test_fraction: float,
     seed: int,
+    num_test_samples: int = None,
+    components: list[str] = COMPONENTS,
 ):
     """
     Draw a subset of the INARA dataset and save it to the output directory.
@@ -248,9 +269,13 @@ def draw_subset(
 
     # Define components to copy
     components = list(
-        set(COMPONENTS + ['theta', 'aux_data']) - {'wavelengths', 'parameters'}
+        set(components + ['theta', 'aux_data']) - {'wavelengths', 'parameters'}
     )
     print(f"Components to be processed: {components} ({len(components)})")
+
+    if num_test_samples is not None:
+        print(f"Number of test samples fixed to: {num_test_samples}")
+
 
     # Draw indices
     train_indices, val_indices, test_indices = draw_indices(
@@ -259,11 +284,17 @@ def draw_subset(
         val_fraction,
         test_fraction,
         seed,
+        num_test_samples
     )
     print(f"\nNumber of samples drawn: {num_samples:_} out of {NUM_INARA_SAMPLES:_} ({num_samples / NUM_INARA_SAMPLES:.2%})")
-    print(f"Train fraction: {train_fraction} ({len(train_indices):_} samples)")
-    print(f"Validation fraction: {val_fraction} ({len(val_indices):_} samples)")
-    print(f"Test fraction: {test_fraction} ({len(test_indices):_} samples)")
+
+    test_fraction = num_test_samples / num_samples
+    train_fraction = 0.8 * (1 - test_fraction)
+    val_fraction = 0.2 * (1 - test_fraction)
+
+    print(f"Train fraction: {train_fraction:.2%} ({len(train_indices):_} samples)")
+    print(f"Validation fraction: {val_fraction:.2%} ({len(val_indices):_} samples)")
+    print(f"Test fraction: {test_fraction:.2%} ({len(test_indices):_} samples)\n")
 
 
     # save the indices
@@ -287,7 +318,8 @@ def draw_subset(
     for component in components:
         print(f"--- Processing component: {component} ---")
 
-
+        # TODO: add multithreading / multiprocessing for copying files and collecting stats, 
+        # especially for noise and signals which are the largest components.
         for split, indices in zip(
             ["train", "val", "test"],
             [train_indices, val_indices, test_indices]
@@ -416,6 +448,20 @@ if __name__ == "__main__":
         type=float,
         default=0.1,
         help="Fraction of samples to allocate to the test set",
+    )
+    ap.add_argument(
+        "--num-test-samples",
+        type=int,
+        default=9140,
+        help="Number of samples to draw for the test set",
+    )
+    ap.add_argument(
+        "--components",
+        type=parse_components,
+        default=",".join(COMPONENTS),
+        help=f"Comma-separated list of components to include in the subset (default: all components). \
+              Parameters (target, auxiliary data) and wavelengths are always included. \
+              Available components: {', '.join(COMPONENTS)}",
     )
     ap.add_argument(
         "--seed",
