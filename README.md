@@ -64,21 +64,6 @@ and the original work:
 }
 ```
 
-If your work relies on the specific modifications introduced in this fork, please cite our work and the original work:
-
-```bibtex
-@article{Gebhard_2024,
-  author     = {Gebhard, Timothy D. and Wildberger, Jonas and Dax, Maximilian and Angerhausen, Daniel and Quanz, Sascha P. and Schölkopf, Bernhard},
-  title      = {Flow Matching for Atmospheric Retrieval of Exoplanets: Where Reliability meets Adaptive Noise Levels},
-  year       = 2024,
-  journal    = {Astronomy \& Astrophysics},
-  eprint     = {2410.21477},
-  eprinttype = {arXiv},
-  addendum   = {(Accepted)},
-}
-```
-
-
 ## ⚖️ License and copyright
 This repository is a fork of [fm4ar](https://github.com/timothygebhard/fm4ar), adapted to our research.
 
