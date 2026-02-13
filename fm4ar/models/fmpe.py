@@ -146,6 +146,9 @@ class FMPEModel(Base):
         # Detect if we are using a fixed-step method
         t_values: torch.Tensor
         if issubclass(SOLVERS[method], FixedGridODESolver):
+
+            # Note: We need at least 2 steps to have a valid integration range (even
+            # though this practically implements a single-step integration)
             if num_steps < 2:
                 raise ValueError(
                     "num_steps must be at least 2 for fixed-step ODE solvers."
@@ -331,6 +334,9 @@ class FMPEModel(Base):
         # If so, create a fixed grid of time points
         t_values: torch.Tensor
         if issubclass(SOLVERS[method], FixedGridODESolver):
+
+            # Note: We need at least 2 steps to have a valid integration range (even
+            # though this practically implements a single-step integration)
             if num_steps < 2:
                 raise ValueError(
                     "num_steps must be at least 2 for fixed-step ODE solvers."
@@ -408,6 +414,9 @@ class FMPEModel(Base):
         # If so, create a fixed grid of time points
         t_values: torch.Tensor
         if issubclass(SOLVERS[method], FixedGridODESolver):
+            
+            # Note: We need at least 2 steps to have a valid integration range (even
+            # though this practically implements a single-step integration)
             if num_steps < 2:
                 raise ValueError(
                     "num_steps must be at least 2 for fixed-step ODE solvers."
