@@ -144,7 +144,9 @@ class INARASubset(Dataset):
     ) -> None:
         super().__init__()
         assert limit is None or isinstance(limit, int), "Limit must be an integer or None."
-        assert split in ["train", "val", "test"], "Split must be one of 'train', 'val', 'test'"
+
+        # TODO: add none option to split, adjust methods accordingly, remember that self.split_file could be None
+        assert split in ["train", "val", "test", None], "Split must be one of 'train', 'val', 'test', or None."
 
 
         self.data_dir = data_dir
@@ -316,12 +318,12 @@ class INARASubset(Dataset):
                 os.path.join(
                     self.data_dir, 
                     f"{split}_indices.npy"
-                )) 
+                )) if split is not None else None
         except FileNotFoundError:
             raise FileNotFoundError(f"Split file for {split} not found in {self.data_dir}.")
-
+            
         # Apply limit to split file if specified
-        if limit is not None:
+        if limit is not None and split_file is not None:
             assert isinstance(limit, int) and limit > 0, "Limit must be a positive integer for split file."
             if limit > len(split_file):
                 if self.verbose: print(f"Limit {limit} exceeds available data size {len(split_file)} for split file. Using full split.")
@@ -329,7 +331,9 @@ class INARASubset(Dataset):
                 if self.verbose: print(f"Using first {limit} samples from {split} split for split file.")
                 split_file = split_file[:limit]
         
-        return {i: str(k).zfill(7) for i, k in enumerate(split_file)} 
+        return {i: str(k).zfill(7) for i, k in enumerate(split_file)} \
+            if split_file is not None \
+            else {i: str(i).zfill(7) for i in range(NUM_INARA_SUBSET_SAMPLES)}
 
 
     def get_sample(
@@ -349,18 +353,43 @@ class INARASubset(Dataset):
         sector = get_sector(planet_index)
 
         sample = {
-            "theta" : self.get_parameters(sector, planet_index).copy(),
+            "theta" : self.get_parameter_array(sector, planet_index).copy(),
             "wlen" : self.get_wavelengths().copy(),
-            "aux_data" : self.get_aux_data(sector, planet_index).copy(),
-            "flux": self.get_component('planet_signal', sector, planet_index).copy(),
-            "error_bars":  self.get_component('noise', sector, planet_index).copy(),
+            "aux_data" : self.get_aux_data_array(sector, planet_index).copy(),
+            "flux": self.get_component_array('planet_signal', sector, planet_index).copy(),
+            "error_bars":  self.get_component_array('noise', sector, planet_index).copy(),
         }
 
         return sample, planet_index
     
 
+    def get_component(
+        self,
+        component: str,
+    ) -> np.ndarray:
+        """
+        Get the file path for a specific component of the dataset.
+        """
+
+        data = []
+        for pl_index in self.split_file.values():
+            sector = get_sector(pl_index)
+            comp = np.loadtxt(
+                os.path.join(
+                    self.data_dir,
+                    self.split,
+                    component,
+                    sector,
+                    f"{pl_index}_{component}.csv"
+                ),
+                delimiter=',',
+                dtype=np.float32
+            ) 
+            data.append(comp)
+        return np.array(data, dtype=np.float32)
+
     
-    def get_component(self, component: str, sector: int, planet_index: str) -> np.ndarray:
+    def get_component_array(self, component: str, sector: int, planet_index: str) -> np.ndarray:
         """
         Get the file path for a specific component of the dataset.
         """
@@ -377,9 +406,32 @@ class INARASubset(Dataset):
             dtype=np.float32
         ) 
         return np.array(data, dtype=np.float32)
-
     
     def get_parameters(
+        self,
+    ) -> np.ndarray:
+        """
+        Get the parameters `theta` of the dataset.
+        """
+        data = []
+        for pl_index in self.split_file.values():
+            sector = get_sector(pl_index)
+            param = np.loadtxt(
+                os.path.join(
+                    self.data_dir,
+                    self.split,
+                    "theta",
+                    sector,
+                    f"{pl_index}_theta.csv"
+                ),
+                delimiter=',',
+                skiprows=1,
+                dtype=np.float32
+            ) 
+            data.append(param)
+        return np.array(data, dtype=np.float32)
+
+    def get_parameter_array(
         self, 
         sector: int, 
         planet_index: str, 
@@ -406,8 +458,31 @@ class INARASubset(Dataset):
 
         return np.array(data, dtype=np.float32)
 
-    
     def get_aux_data(
+        self,
+    ) -> np.ndarray:
+        """
+        Get the auxiliary data `aux_data` of the dataset.
+        """
+        data = []
+        for pl_index in self.split_file.values():
+            sector = get_sector(pl_index)
+            aux = np.loadtxt(
+                os.path.join(
+                    self.data_dir,
+                    self.split,
+                    "aux_data",
+                    sector,
+                    f"{pl_index}_aux_data.csv"
+                ),
+                delimiter=',',
+                skiprows=1,
+                dtype=np.float32
+            ) 
+            data.append(aux)
+        return np.array(data, dtype=np.float32)
+    
+    def get_aux_data_array(
         self,
         sector: int,
         planet_index: str,
