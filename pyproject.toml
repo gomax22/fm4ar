@@ -63,40 +63,22 @@ dependencies = [
 ]
 
 # Additional optional dependencies
-[project.optional-dependencies]
+# [project.optional-dependencies]
 
 # Development dependencies
-dev = [
-    "coverage",
-    "ipython",
-    "jupyter",
-    "mypy",
-    "pytest",
-    "pytest-cov",
-    "ruff",
-    "toml~=0.10.2",
-    "types-pyyaml",
-    "types-tabulate",
-    "types-toml",
-]
-
-# petitRADTRANS can be tricky to install, so we keep it separate
-# Note: petitRADTRANS 2.7.x seems to give the exact same results in our tests
-# but introduces a weird runtime degradation in our nested sampling code that
-# basically makes it unusable...
-# Note: petitRADTRANS 3.x introduces major breaking changes that would require
-# updating the whole simulator code, so we stick to 2.6.7 for now.
-petitRADTRANS = [
-    "mpi4py==3.1.6",
-    "petitRADTRANS==2.6.7",
-]
-
-# PyMultiNest is also a bit tricky to install (see docs for pre-requisites)
-# Note: It will automatically be installed by petitRADTRANS, however
-PyMultiNest = [
-    "pymultinest==2.12",
-]
-
+# dev = [
+#     "coverage",
+#     "ipython",
+#     "jupyter",
+#     "mypy",
+#     "pytest",
+#     "pytest-cov",
+#     "ruff",
+#     "toml~=0.10.2",
+#     "types-pyyaml",
+#     "types-tabulate",
+#     "types-toml",
+# ]
 
 # -----------------------------------------------------------------------------
 # TOOL CONFIGURATION
@@ -120,17 +102,17 @@ pythonVersion = "3.10"
 reportPrivateImportUsage = "none"
 
 
-[tool.pytest.ini_options]
-filterwarnings = [
-    "ignore::DeprecationWarning",
-]
-testpaths = [
-    "tests",
-]
-markers = [  # deselect tests with -m "not <marker>"
-    "integration_test: integration tests (which are usually slow)",
-    "slow: unit tests that are slow",
-]
+# [tool.pytest.ini_options]
+# filterwarnings = [
+#     "ignore::DeprecationWarning",
+# ]
+# testpaths = [
+#     "tests",
+# ]
+# markers = [  # deselect tests with -m "not <marker>"
+#     "integration_test: integration tests (which are usually slow)",
+#     "slow: unit tests that are slow",
+# ]
 
 
 [tool.ruff]

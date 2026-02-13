@@ -151,12 +151,6 @@ def get_mean_and_std(dataset: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
     Get the mean and standard deviation of the target parameters.
     """
     match dataset:
-        case "vasist_2023":
-            from fm4ar.datasets.vasist_2023.prior import LOWER, UPPER
-            a = np.array(LOWER)
-            b = np.array(UPPER)
-            mean = (a + b) / 2
-            std = np.sqrt(1 / 12 * (b - a) ** 2)
         case "inaf":
             from fm4ar.datasets.inaf import load_normalization_params
             norm_params = load_normalization_params(
@@ -188,10 +182,6 @@ def get_min_and_max(dataset: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
     Get the minimum and maximum of the target parameters.
     """
     match dataset:
-        case "vasist_2023":
-            from fm4ar.datasets.vasist_2023.prior import LOWER, UPPER
-            minimum = np.array(LOWER)
-            maximum = np.array(UPPER)
         case "inaf":
             from fm4ar.datasets.inaf import load_normalization_params
             norm_params = load_normalization_params(
