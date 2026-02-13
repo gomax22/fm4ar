@@ -6,7 +6,7 @@
 This repository contains the code for the research paper:
 
 > M. Giordano Orsini, A. Ferone, L. Inno, A. Maratea, A. Casolaro, P. Giacobbe, L. Pino, A. S. Bonomo (2026). 
-> "MST-FMPE: Multi-Scale Transformer for High-Resolution Atmospheric Retrieval of Exoplanets" 
+> "MST-FMPE: Multi-Scale Transformer for High-Resolution Atmospheric Retrieval of Exoplanets".
 > Submitted to _Journal of Computational Physics._
 
 ---
