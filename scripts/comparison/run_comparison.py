@@ -255,18 +255,18 @@ def plot_diagrams(
 
     # corner plot with multiple full posteriors 
     # print("Plotting corner plot prior vs posteriors...", end=' ', flush=True)
-    # corner_plot_prior_posteriors(
-    #     posteriors=posteriors[..., :7],
-    #     thetas=thetas[..., :7],
-    #     labels=labels[:7],
-    #     colors=colors,
-    #     model_labels=model_labels,
-    #     output_fname=os.path.join(
-    #         output_dir, 
-    #         'corner_plot.pdf'
-    #     )
-    # )
-    # print("Done!", flush=True)
+    corner_plot_prior_posteriors(
+        posteriors=posteriors, # [..., :7],
+        thetas=thetas, # [..., :7],
+        labels=labels, # [:7],
+        colors=colors,
+        model_labels=model_labels,
+        output_dir=os.path.join(
+            output_dir, 
+            'corners',
+        )
+    )
+    print("Done!", flush=True)
     print("Plotting corner plot multiple conditional distributions...", end=' ', flush=True)
     corner_plot_multiple_distributions(
         posteriors=posteriors[:, 1723, :, :].reshape(len(posteriors), 1, posteriors.shape[2], posteriors.shape[3]),
