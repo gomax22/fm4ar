@@ -17,6 +17,10 @@ from dataclasses import dataclass
 NUM_INARA_SAMPLES = 3_112_620
 SECTOR_SIZE = 10_000
 
+# Batch size for multiprocessing
+BATCH_SIZE = 1000 
+MAX_WORKERS = max(1, cpu_count() - 2) # Leave 1-2 cores for system/main thread
+
 COMPONENTS = [
     'noise', 'planet_signal', 'wavelengths', 'parameters',
     'star_planet_signal', 'stellar_signal',
@@ -244,14 +248,20 @@ def process_batch(args):
 def draw_subset(
     data_dir: Path,
     output_dir: Path,
-    num_samples: int,
     train_fraction: float,
     val_fraction: float,
     test_fraction: float,
     seed: int,
+    num_samples: int = NUM_INARA_SAMPLES,
     num_test_samples: int = None,
     components: list[str] = COMPONENTS,
+    num_workers: int = MAX_WORKERS
 ):
+    assert 0 < num_samples <= NUM_INARA_SAMPLES, f"num_samples must be a positive integer and cannot exceed {NUM_INARA_SAMPLES}"
+    assert 0 < num_workers <= MAX_WORKERS, f"num_workers must be a positive integer and cannot exceed {MAX_WORKERS}"
+    assert (num_test_samples is None) or (0 < num_test_samples < num_samples), \
+        f"num_test_samples muste be a positive integer and must be less than num_samples ({num_samples})"
+
     random.seed(seed)
     np.random.seed(seed)
 
@@ -278,10 +288,6 @@ def draw_subset(
 
     # Processing Loop
     splits = [("train", train_idx), ("val", val_idx), ("test", test_idx)]
-    
-    # Batch size for multiprocessing
-    BATCH_SIZE = 1000 
-    NUM_WORKERS = max(1, cpu_count() - 2) # Leave 1-2 cores for system/main thread
 
     for component in components:
         print(f"\n--- Processing {component} ---")
@@ -309,7 +315,7 @@ def draw_subset(
             # Use imap_unordered for progress bar
             split_stats_agg = None
             
-            with Pool(processes=NUM_WORKERS) as pool:
+            with Pool(processes=num_workers) as pool:
                 # Wrap process_batch with partial if needed, but here simple tuple arg is fine
                 results = list(tqdm(
                     pool.imap_unordered(process_batch, chunks),
@@ -348,13 +354,14 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", type=Path, required=True)
     ap.add_argument("--output-dir", type=Path, required=True)
-    ap.add_argument("--num-samples", type=int, required=True)
     ap.add_argument("--train-fraction", type=float, default=0.7)
     ap.add_argument("--val-fraction", type=float, default=0.2)
     ap.add_argument("--test-fraction", type=float, default=0.1)
+    ap.add_argument("--num-samples", type=int, default=NUM_INARA_SAMPLES)
     ap.add_argument("--num-test-samples", type=int, default=None) # Changed default to None for logic consistency
     ap.add_argument("--components", type=parse_components, default=",".join(COMPONENTS))
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--num-workers", type=int, default=MAX_WORKERS)
     
     args = vars(ap.parse_args())
     draw_subset(**args)
