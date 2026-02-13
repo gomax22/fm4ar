@@ -310,24 +310,12 @@ if __name__ == "__main__":
             compare."
         ),
     )
-    parser.add_argument(
-        "--output-dir",
-        required=False,
-        default=Path("experiments/comparison"),
-        type=Path,
-        help="Directory where to save the merged comparison results.  \
-              By default, this is 'experiment/comparison'. \
-              The results will be saved in a subdirectory named as the config \
-              file (without extension).",
-    )
     args = parser.parse_args()
     with open(args.config, "r") as f:
         config = safe_load(f)
 
-    # Extract name of the config file without extension
-    config_name = args.config.stem
-
-    output_dir = expand_env_variables_in_path(args.output_dir / config_name)
+    # Ensure output directory exists
+    output_dir = expand_env_variables_in_path(args.config.parent / args.config.stem)
     if not output_dir.exists():
         output_dir.mkdir(parents=True, exist_ok=True)
 
