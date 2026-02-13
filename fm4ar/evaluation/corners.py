@@ -222,8 +222,11 @@ def corner_plot_prior_posteriors(
     labels: List[str],
     colors: List[str],
     model_labels: List[str],
-    output_fname: str
+    output_dir: str
 ):
+    
+    Path(output_dir).mkdir(parents=True, exist_ok=True) 
+
     # -------------------------------------------------
     # plot prior vs posteriors
     thetas = thetas.reshape(-1, thetas.shape[-1])
@@ -236,57 +239,88 @@ def corner_plot_prior_posteriors(
 
     # make a corner plot of prior and posterior samples
     n_targets = thetas.shape[-1]
+    # fig = corner.corner(
+    #     thetas,
+    #     labels=labels,
+    #     label_kwargs={"fontsize": 12, "fontname": "Times New Roman"},
+    #     color="green",
+    #     show_titles=True, 
+    #     title_kwargs={"fontsize": 12, "fontname": "Times New Roman"}
+    # )
     fig = corner.corner(
-        thetas,
-        labels=labels,
-        label_kwargs={"fontsize": 12, "fontname": "Times New Roman"},
-        color="green",
-        show_titles=True, 
-        title_kwargs={"fontsize": 12, "fontname": "Times New Roman"}
+        data=thetas,
+        labels=labels, 
+        color="green", 
+        bins=100,
+        smooth=3.0,
+        smooth1d=3.0,
+        show_titles=True,
+        plot_datapoints=False,
+        plot_contours=True,
+        plot_density=False,
+        levels=(0.68, 0.95),
+        contour_kwargs=dict(linewidths=2.0),
+        label_kwargs={"fontsize": 12, "fontname": "Times New Roman"}
     )
     
     for posterior, color in zip(posteriors, colors):
+        # corner.corner(
+        #     posterior, 
+        #     labels=labels, 
+        #     label_kwargs={"fontsize": 12, "fontname": "Times New Roman"},
+        #     color=color, 
+        #     show_titles=False, 
+        #     fig=fig
+        # )   
         corner.corner(
             posterior, 
-            labels=labels, 
-            label_kwargs={"fontsize": 12, "fontname": "Times New Roman"},
+            labels=labels,
             color=color, 
-            show_titles=False, 
+            bins=100,
+            smooth=3.0,
+            smooth1d=3.0,
+            show_titles=False,
+            plot_datapoints=False,
+            plot_contours=True,
+            plot_density=False,
+            levels=(0.68, 0.95),
+            contour_kwargs=dict(linewidths=2.0),
+            label_kwargs={"fontsize": 12, "fontname": "Times New Roman"},
             fig=fig
-        )   
+        )
     
     # Extract the axes
     axes = np.array(fig.axes).reshape((n_targets, n_targets))
         
     # Loop over the diagonal
-    for i in range(n_targets):
-        ax = axes[i, i]
-        ax.axvline(thetas[:, i].mean().item(), color="g", linestyle="--")
-        x_lim = ax.get_xlim()
-        ax.set_xlim(min(x_lim[0], thetas[:, i].mean().item()) - 0.2, max(x_lim[1], thetas[:, i].mean().item()) + 0.2) # this offset makes sense in the standardized domain (e.g. for T_p it's useless)
-        for posterior, color in zip(posteriors, colors):
-            ax.axvline(posterior[:, i].mean().item(), color=color, linestyle="--")
+    # for i in range(n_targets):
+    #     ax = axes[i, i]
+    #     ax.axvline(thetas[:, i].mean().item(), color="g", linestyle="--")
+    #     x_lim = ax.get_xlim()
+    #     ax.set_xlim(min(x_lim[0], thetas[:, i].mean().item()) - 0.2, max(x_lim[1], thetas[:, i].mean().item()) + 0.2) # this offset makes sense in the standardized domain (e.g. for T_p it's useless)
+    #     for posterior, color in zip(posteriors, colors):
+    #         ax.axvline(posterior[:, i].mean().item(), color=color, linestyle="--")
     
     # Loop over the histograms
-    for yi in range(n_targets): # yi 
-        for xi in range(yi):
-            ax = axes[yi, xi]
-            # ax.set_title(f"yi: {yi}, xi: {xi}")
-            ax.axvline(thetas[:, xi].mean().item(), color="g", linestyle="--")
+    # for yi in range(n_targets): # yi 
+    #     for xi in range(yi):
+    #         ax = axes[yi, xi]
+    #         # ax.set_title(f"yi: {yi}, xi: {xi}")
+    #         ax.axvline(thetas[:, xi].mean().item(), color="g", linestyle="--")
             
-            # ax.axvline(value2[xi], color="r")
-            ax.axhline(thetas[:, yi].mean().item(), color="g", linestyle="--")
+    #         # ax.axvline(value2[xi], color="r")
+    #         ax.axhline(thetas[:, yi].mean().item(), color="g", linestyle="--")
             
-            for posterior, color in zip(posteriors, colors):
-                ax.axvline(posterior[:, xi].mean().item(), color=color, linestyle="--")
-                ax.axhline(posterior[:, yi].mean().item(), color=color, linestyle="--")
+    #         for posterior, color in zip(posteriors, colors):
+    #             ax.axvline(posterior[:, xi].mean().item(), color=color, linestyle="--")
+    #             ax.axhline(posterior[:, yi].mean().item(), color=color, linestyle="--")
             
-            # ax.axhline(value2[yi], color="r")
-            ax.plot(thetas[:, xi].mean().item(), thetas[:, yi].mean().item(), "sg")
-            # ax.plot(value2[xi], value2[yi], "sr")
-            x_lim, y_lim = ax.get_xlim(), ax.get_ylim()
-            ax.set_xlim(min(x_lim[0], thetas[:, xi].mean().item()) - 0.2, max(x_lim[1], thetas[:, xi].mean().item()) + 0.2)
-            ax.set_ylim(min(y_lim[0], thetas[:, yi].mean().item()) - 0.2, max(y_lim[1], thetas[:, yi].mean().item()) + 0.2)
+    #         # ax.axhline(value2[yi], color="r")
+    #         ax.plot(thetas[:, xi].mean().item(), thetas[:, yi].mean().item(), "sg")
+    #         # ax.plot(value2[xi], value2[yi], "sr")
+    #         x_lim, y_lim = ax.get_xlim(), ax.get_ylim()
+    #         ax.set_xlim(min(x_lim[0], thetas[:, xi].mean().item()) - 0.2, max(x_lim[1], thetas[:, xi].mean().item()) + 0.2)
+    #         ax.set_ylim(min(y_lim[0], thetas[:, yi].mean().item()) - 0.2, max(y_lim[1], thetas[:, yi].mean().item()) + 0.2)
 
     # plot legend in upper right corner of the figure
     handles = [Line2D([0], [0], lw=4, color="green")]
@@ -304,8 +338,23 @@ def corner_plot_prior_posteriors(
         bbox_to_anchor=(0.95, 0.95),
     )
     # plt.figlegend(model_labels, fontsize='large')
-    fig.savefig(output_fname, dpi=300)
-    fig.savefig(output_fname, format='pdf', bbox_inches='tight', dpi=300)
+    fig.savefig(
+        os.path.join(
+            output_dir, "corner_plot_prior_posterior.png"
+        ), 
+        format='png', 
+        bbox_inches='tight', 
+        dpi=300
+    )
+    fig.savefig(
+        os.path.join(
+            output_dir,
+            "corner_plot_prior_posterior.pdf"
+        ),
+        format='pdf', 
+        bbox_inches='tight', 
+        dpi=300
+    )
     
     plt.close(fig)
 
