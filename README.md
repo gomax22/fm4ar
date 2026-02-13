@@ -69,6 +69,7 @@ This repository is a fork of [fm4ar](https://github.com/timothygebhard/fm4ar), a
 
 The code in this repository was written by [Massimiliano Giordano Orsini](https://github.com/gomax22), and is owned by the [Computer Vision and Pattern Recognition "Alfredo Petrosino" Laboratory (CVPRLAB), Department of Science and Technology, Parthenope University of Naples](https://cvprlab.uniparthenope.it)
 
-The original code in this repository was written by [Timothy Gebhard](https://github.com/timothygebhard), with contributions from [Jonas Wildberger](https://github.com/jonaswildberger) and [Maximilian Dax](https://github.com/max-dax), and is owned by the [Max Planck Society](https://www.mpg.de/en).
+The original code was written by [Timothy Gebhard](https://github.com/timothygebhard), with contributions from [Jonas Wildberger](https://github.com/jonaswildberger) and [Maximilian Dax](https://github.com/max-dax), and is owned by the [Max Planck Society](https://www.mpg.de/en).
+
 The original code is released under the **BSD-3 Clause License** (see [LICENSE](LICENSE) for details). All modifications in this repository are released under the same license terms.
 
