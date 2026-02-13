@@ -1,4 +1,4 @@
-# Flow Matching for Atmospheric Retrievals
+# MST-FMPE: Multi-Scale Transformer for High-Resolution Atmospheric Retrieval of Exoplanets
 
 ![Python 3.10](https://img.shields.io/badge/python-3.10+-blue)
 [![Data availability](https://img.shields.io/badge/Data-Available_on_Edmond-31705e)](https://doi.org/10.17617/3.LYSSVN)
