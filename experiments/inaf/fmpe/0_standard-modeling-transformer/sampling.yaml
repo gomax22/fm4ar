@@ -4,28 +4,23 @@
 
 # General settings
 checkpoint_file_name: "model__best.pt"
-model_kwargs:
+model_kwargs: 
   method: rk4
   num_steps: 2
   epsilon: 0.0
-  # method: rk4
-  # num_steps: 5
-  # epsilon: 0.0
-  # method: dopri5
-  # tolerance: 1.0e-3
 loss_kwargs: {}
 
 
 # Stage 1: Draw samples from the proposal distribution
 draw_samples:
-  chunk_size: 128
+  chunk_size: 32
   n_samples: 2048
   batch_size: 4
   use_amp: true
   shuffle: false
   pin_memory: true
   drop_last: false
-  n_workers: 4
+  n_workers: 16
   random_seed: 42
 
 merge_samples:

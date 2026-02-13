@@ -15,12 +15,6 @@ theta_scaler:
     dataset: "inara_subset"
     file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset/norm_params.pkl"
 
-auxiliary_data_scaler:
-  method: "MeanStdScaler"
-  kwargs:
-    dataset: "inara_subset"
-    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset/norm_params.pkl"
-
 # flux_scaler:
 #   method: "UnitsScaler"
 #   kwargs:
@@ -47,7 +41,6 @@ model:
   random_seed: 42
   t_theta_with_glu: true
   context_with_glu: false
-  auxiliary_data_with_glu: true
 
   sigma_min: 1.0e-4
 
@@ -58,23 +51,62 @@ model:
 
   # Embedding network for context
   context_embedding_net:
+    - block_type: "SoftClipFlux"
+      kwargs:
+        bound: 100.0
+    - block_type: "Unsqueeze"
+      kwargs:
+        keys: ["flux", "error_bars", "wlen"]
+        dim: 1
     - block_type: "Concatenate"
       kwargs:
         keys: ["flux", "error_bars", "wlen"]
         dim: 1
-    - block_type: "DenseResidualNet"
+    - block_type: "HierarchicalMultiScaleSpectralEncoder"
       kwargs:
-        hidden_dims: [512, 512]
-        activation: "GELU"
-        output_dim: 512
-        dropout: 0.1
-        use_layer_norm: true
+
+        # Transformer settings
+        n_channels: 3
+        d_model: 128
+        n_heads: 4
+        n_layers_per_scale: 2
+
+        # Multi-scale settings
+        patch_sizes: [2048, 4096, 8192, 16384]
+        strides: [256, 512, 1024, 2048]
+
+        # Transformer block settings
+        mhsa_block_type: 'classic'
+        mhca_block_type: 'classic'
+        pre_rms: true
+        post_rms: true
+        use_qk_norm: true
+        learn_qk_scale: false
+        ffn_type: 'swiglu'
+        ffn_hidden_mult: 4
+        ffn_dropout: 0.1
+
+        # Rotary Positional Encoding settings
+        rope_type: 'none'
+
+        # Token-positional encoding
+        use_wavelength_token_embedding: true
+
+        # Patch-positonal encoding
+        max_len: 2048
+        pe_type: 'wavelength'
+        transform: 'log'
+        scale_factor: 1.0
+        base: 10000.0
+
+        # Fusion settings
+        incremental_cross_attention: true
 
   # Embedding network for (t, theta)
   t_theta_embedding_net:
     - block_type: "PositionalEncoding"
       kwargs:
-        n_freqs: 13
+        n_freqs: 6
         encode_theta: false
     - block_type: "DenseResidualNet"
       kwargs:
@@ -82,16 +114,6 @@ model:
         activation: "GELU"
         output_dim: 512
         dropout: 0.0
-        use_layer_norm: true
-
-  # Embedding network for auxiliary data      
-  auxiliary_data_embedding_net:
-    - block_type: "DenseResidualNet"
-      kwargs:
-        hidden_dims: [512, 512]
-        activation: "GELU"
-        output_dim: 512
-        dropout: 0.1
         use_layer_norm: true
 
   # Vector field network
@@ -175,4 +197,4 @@ local:
   wandb:
     project: "fm4ar"
     group: "inara"
-    name: "fmpe__standard-modeling-dense-residual-network-auxiliary-data-conditioning"
+    name: "fmpe__0_standard-modeling-hierarchical-multi-scale-transformer"
