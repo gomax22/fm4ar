@@ -3,6 +3,8 @@ import argparse
 from time import time
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 from typing import Optional
 from pathlib import Path
@@ -21,6 +23,15 @@ from fm4ar.utils.config import load_config as load_experiment_config
     # merge results into a single dataframe per each task
     # load predictions
     # make plots (corner, tarp, regression)
+
+def make_estimator_palette(estimator_names):
+    """
+    Assign maximally separated, color-blind safe colors to estimators.
+    """
+    cmap = plt.get_cmap("tab20")
+    colors = [mcolors.to_hex(cmap(i)) for i in range(len(estimator_names))]
+    return colors
+
 
 def merge_experiment_results(
     config: dict,
@@ -248,7 +259,8 @@ def plot_diagrams(
     print("Done!", flush=True)
 
     # load colors from config
-    colors = [v['color'] for k,v in config['estimators'].items()]
+    # colors = [v['color'] for k,v in config['estimators'].items()]
+    colors = make_estimator_palette(list(config['estimators'].keys()))
 
     # model lables from estimators name ?
     model_labels = [k.upper() for k in config['estimators'].keys()]
@@ -256,9 +268,9 @@ def plot_diagrams(
     # corner plot with multiple full posteriors 
     # print("Plotting corner plot prior vs posteriors...", end=' ', flush=True)
     corner_plot_prior_posteriors(
-        posteriors=posteriors, # [..., :7],
-        thetas=thetas, # [..., :7],
-        labels=labels, # [:7],
+        posteriors=posteriors[..., :6],
+        thetas=thetas[..., :6],
+        labels=labels[:6],
         colors=colors,
         model_labels=model_labels,
         output_dir=os.path.join(
@@ -269,9 +281,9 @@ def plot_diagrams(
     print("Done!", flush=True)
     print("Plotting corner plot multiple conditional distributions...", end=' ', flush=True)
     corner_plot_multiple_distributions(
-        posteriors=posteriors[:, 1723, :, :].reshape(len(posteriors), 1, posteriors.shape[2], posteriors.shape[3]),
-        thetas=thetas[1723, :].reshape(1, -1),
-        labels=labels,
+        posteriors=posteriors[:, 0, :, :6].reshape(len(posteriors), 1, posteriors.shape[2], 6),# posteriors.shape[3]),
+        thetas=thetas[0, :6].reshape(1, -1), # :].reshape(1, -1),
+        labels=labels[:6], # [],
         colors=colors,
         model_labels=model_labels,
         output_dir=os.path.join(
@@ -284,9 +296,9 @@ def plot_diagrams(
     # diagrams with multiple posteriors
     print("Plotting regression diagrams...", end=' ', flush=True)
     plot_regression_diagrams(
-        posteriors=posteriors,
-        thetas=thetas,
-        labels=labels,
+        posteriors=posteriors[..., :6], # ,
+        thetas=thetas[:, :6], # ,
+        labels=labels[:6], # ,
         colors=colors, 
         model_labels=model_labels,
         output_dir=os.path.join(
