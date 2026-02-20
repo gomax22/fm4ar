@@ -13,16 +13,20 @@ to the experiment config files) and give somewhat different performance.
 The glasflow-based NSF implementation is mostly based on the uci.py
 example from https://github.com/bayesiains/nsf.
 """
+from __future__ import annotations
 
 from typing import Any
 
 import normflows as nf
 import torch
+import torch.nn as nn
 from glasflow.nflows import distributions, flows, transforms, utils
 from glasflow.nflows.nn import nets as nflows_nets
 
 from fm4ar.torchutils.general import get_activation_from_name
 from fm4ar.torchutils.weights import load_and_or_freeze_model_weights
+
+from typing import Any, Callable
 
 # -----------------------------------------------------------------------------
 # Unified interface for both
@@ -221,6 +225,210 @@ def create_unconditional_flow_wrapper(
 # -----------------------------------------------------------------------------
 
 
+# def create_normflows_flow(
+#     dim_theta: int,
+#     dim_context: int | None,
+#     flow_kwargs: dict[str, Any],
+# ) -> FlowWrapper:
+#     """
+#     Create a normflows-based normalizing flow.
+#     """
+
+#     # Define shortcuts
+#     num_flow_steps = flow_kwargs["num_flow_steps"]
+#     base_transform_type = flow_kwargs["base_transform_type"]
+#     base_transform_kwargs = flow_kwargs["base_transform_kwargs"]
+
+#     # We need to copy the base_transform_kwargs because we will modify the
+#     # activation function and we don't want to change the original config
+#     # as this will cause issues when resuming from a checkpoint.
+#     base_transform_kwargs = base_transform_kwargs.copy()
+
+#     # Update the activation function: the config uses a string, but normflows
+#     # expects a class like torch.nn.ReLU (*not* an instance!)
+#     base_transform_kwargs["activation"] = get_activation_from_name(
+#         base_transform_kwargs["activation"]
+#     ).__class__
+
+#     # Set base transform
+#     if base_transform_type == "rq-coupling":
+#         BaseTransform = nf.flows.CoupledRationalQuadraticSpline
+#     elif base_transform_type == "rq-autoregressive":
+#         BaseTransform = nf.flows.AutoregressiveRationalQuadraticSpline
+#     else:  # pragma: no cover
+#         raise ValueError(f"Unknown base transform type: {base_transform_type}")
+
+#     # Construct flow steps
+#     flows = []
+#     for _ in range(num_flow_steps):
+#         flows += [
+#             BaseTransform(
+#                 num_input_channels=dim_theta,
+#                 num_context_channels=dim_context,
+#                 **base_transform_kwargs,
+#             )
+#         ]
+#         flows += [nf.flows.LULinearPermute(dim_theta)]
+
+#     # Set base distribution
+#     q0 = nf.distributions.DiagGaussian(dim_theta, trainable=False)
+
+#     # Construct flow model
+#     if dim_context is None:
+#         flow = nf.NormalizingFlow(q0=q0, flows=flows)
+#     else:
+#         flow = nf.ConditionalNormalizingFlow(q0=q0, flows=flows)
+
+#     return FlowWrapper(flow=flow)
+
+# -----------------------------------------------------------------------------
+# Flow registry
+# -----------------------------------------------------------------------------
+
+def _make_residual_step(
+    dim: int,
+    context_dim: int | None,
+    kw: dict,
+) -> list[nf.flows.Flow]:
+    """Residual flow step."""
+    net = kw.get("net")
+
+    if net is None:
+        # Default Lipschitz network
+        net = nf.nets.LipschitzMLP([dim, 64, 64, dim], init_zeros=True)
+
+    return [nf.flows.Residual(net)]
+
+
+def _make_stochastic_step(
+    dim: int,
+    context_dim: int | None,
+    kw: dict,
+) -> list[nf.flows.Flow]:
+    """Stochastic flow step."""
+    dist = kw.get("distribution")
+
+    if dist is None:
+        dist = nf.distributions.DiagGaussian(dim)
+
+    return [nf.flows.Stochastic(dist)]
+
+def _make_affine_coupling(d, c, kw):
+
+    hidden = kw.get("hidden_features", 128)
+    activation = kw.get("activation", nn.ReLU)
+
+    param_net = nn.Sequential(
+        nn.Linear(d // 2, hidden),
+        activation(),
+        nn.Linear(hidden, hidden),
+        activation(),
+        nn.Linear(hidden, d),
+    )
+
+    return [
+        nf.flows.AffineCouplingBlock(
+            param_map=param_net,
+            scale=True,
+        ),
+        nf.flows.Permute(d, mode="shuffle"),
+    ]
+
+def _make_circular_rq_autoregressive(d, c, kw):
+
+    ind_circ = kw.pop("ind_circ", None)
+
+    if ind_circ is None:
+        raise ValueError(
+            "Circular flow requires 'ind_circ' in base_transform_kwargs"
+        )
+
+    ind_circ = torch.as_tensor(ind_circ)
+
+    return [
+        nf.flows.CircularAutoregressiveRationalQuadraticSpline(
+            num_input_channels=d,
+            num_context_channels=c,
+            ind_circ=ind_circ,
+            **kw,
+        )
+    ]
+
+def _make_glow_step(
+    dim: int,
+    context_dim: int | None,
+    kw: dict,
+) -> list[nf.flows.Flow]:
+    """Glow-style composite step."""
+    return [
+        nf.flows.ActNorm(dim),
+        nf.flows.Invertible1x1Conv(dim),
+        *_make_affine_coupling(dim, context_dim, kw),
+    ]
+
+
+# Registry mapping config names → constructors
+NORMFLOWS_REGISTRY: dict[
+    str,
+    Callable[[int, int | None, dict], list[nf.flows.Flow]],
+] = {
+
+    # -----------------------------------------------------------------
+    # Elementary flows
+    # -----------------------------------------------------------------
+    "planar": lambda d, c, kw: [nf.flows.Planar((d,))],
+    "radial": lambda d, c, kw: [nf.flows.Radial((d,))],
+
+    # -----------------------------------------------------------------
+    # Coupling flows
+    # -----------------------------------------------------------------
+    "affine-coupling": _make_affine_coupling,
+
+    "rq-coupling": lambda d, c, kw: [
+        nf.flows.CoupledRationalQuadraticSpline(
+            num_input_channels=d,
+            num_context_channels=c,
+            **kw,
+        ),
+        nf.flows.LULinearPermute(d),
+    ],
+
+    # Glow-style block
+    "glow-step": _make_glow_step,
+
+    # -----------------------------------------------------------------
+    # Autoregressive flows
+    # -----------------------------------------------------------------
+    "maf": lambda d, c, kw: [
+        nf.flows.MaskedAffineAutoregressive(
+            features=d,
+            context_features=c,
+            **kw,
+        )
+    ],
+
+    "rq-autoregressive": lambda d, c, kw: [
+        nf.flows.AutoregressiveRationalQuadraticSpline(
+            num_input_channels=d,
+            num_context_channels=c,
+            **kw,
+        )
+    ],
+
+    "circular-rq-autoregressive": _make_circular_rq_autoregressive,
+
+    # -----------------------------------------------------------------
+    # Advanced flows
+    # -----------------------------------------------------------------
+    "residual": _make_residual_step,
+    "stochastic": _make_stochastic_step,
+}
+
+
+# -----------------------------------------------------------------------------
+# Main constructor
+# -----------------------------------------------------------------------------
+
 def create_normflows_flow(
     dim_theta: int,
     dim_context: int | None,
@@ -228,51 +436,60 @@ def create_normflows_flow(
 ) -> FlowWrapper:
     """
     Create a normflows-based normalizing flow.
+
+    Supported flow types:
+
+    - planar
+    - radial
+    - affine-coupling (RealNVP)
+    - rq-coupling (Neural spline coupling)
+    - glow-step
+    - maf
+    - rq-autoregressive
+    - circular-rq-autoregressive
+    - residual
+    - stochastic
     """
 
-    # Define shortcuts
     num_flow_steps = flow_kwargs["num_flow_steps"]
     base_transform_type = flow_kwargs["base_transform_type"]
-    base_transform_kwargs = flow_kwargs["base_transform_kwargs"]
+    base_transform_kwargs = flow_kwargs.get(
+        "base_transform_kwargs", {}
+    ).copy()
 
-    # We need to copy the base_transform_kwargs because we will modify the
-    # activation function and we don't want to change the original config
-    # as this will cause issues when resuming from a checkpoint.
-    base_transform_kwargs = base_transform_kwargs.copy()
+    # Convert activation string → class if present
+    base_transform_kwargs["activation"] = (
+        get_activation_from_name(
+            base_transform_kwargs["activation"]
+        )
+    )
 
-    # Update the activation function: the config uses a string, but normflows
-    # expects a class like torch.nn.ReLU (*not* an instance!)
-    base_transform_kwargs["activation"] = get_activation_from_name(
-        base_transform_kwargs["activation"]
-    ).__class__
+    if base_transform_type not in NORMFLOWS_REGISTRY:
+        raise ValueError(
+            f"Unsupported flow type: {base_transform_type}\n"
+            f"Available: {list(NORMFLOWS_REGISTRY.keys())}"
+        )
 
-    # Set base transform
-    if base_transform_type == "rq-coupling":
-        BaseTransform = nf.flows.CoupledRationalQuadraticSpline
-    elif base_transform_type == "rq-autoregressive":
-        BaseTransform = nf.flows.AutoregressiveRationalQuadraticSpline
-    else:  # pragma: no cover
-        raise ValueError(f"Unknown base transform type: {base_transform_type}")
+    flows: list[nf.flows.Flow] = []
 
-    # Construct flow steps
-    flows = []
     for _ in range(num_flow_steps):
-        flows += [
-            BaseTransform(
-                num_input_channels=dim_theta,
-                num_context_channels=dim_context,
-                **base_transform_kwargs,
-            )
-        ]
-        flows += [nf.flows.LULinearPermute(dim_theta)]
+        flows += NORMFLOWS_REGISTRY[base_transform_type](
+            dim_theta,
+            dim_context,
+            base_transform_kwargs,
+        )
 
-    # Set base distribution
-    q0 = nf.distributions.DiagGaussian(dim_theta, trainable=False)
+    # Base distribution
+    q0 = nf.distributions.DiagGaussian(
+        dim_theta,
+        trainable=False,
+    )
 
     # Construct flow model
     if dim_context is None:
         flow = nf.NormalizingFlow(q0=q0, flows=flows)
     else:
+        print("Using conditional flow with context dimension:", dim_context)
         flow = nf.ConditionalNormalizingFlow(q0=q0, flows=flows)
 
     return FlowWrapper(flow=flow)
