@@ -98,96 +98,8 @@ class ResidualBlock(nn.Module):
                 torch.cat((temps, self.context_layer_1(first_context)), dim=1),
                 dim=1,
             )
-            temps = inputs + temps
-        
-        if second_context is not None:
-            temps = torch.nn.functional.glu(
-                torch.cat((temps, self.context_layer_2(second_context)), dim=1),
-                dim=1,
-            )
-            temps = inputs + temps
-
-        return temps
-
-
-
-class ResidualBlock(nn.Module):
-    """
-    A general-purpose residual block.
-    Originally based on `glasflow.nflows.nn.nets.resnets.ResidualBlock`.
-    """
-
-    def __init__(
-        self,
-        n_features: int,
-        n_first_context_features: int | None,
-        n_second_context_features: int | None,
-        activation: nn.Module,
-        dropout_probability: float = 0.0,
-        use_batch_norm: bool = False,
-        use_layer_norm: bool = False,
-    ):
-
-        super().__init__()
-
-        self.activation = activation
-
-        self.dropout = nn.Dropout(p=dropout_probability)
-
-        if use_batch_norm and use_layer_norm:  # pragma: no cover
-            raise ValueError(
-                "Cannot use both batch normalization and layer normalization!"
-            )
-
-        self.use_batch_norm = use_batch_norm
-        if use_batch_norm:
-            self.batch_norm_1 = nn.BatchNorm1d(n_features, eps=1e-3)
-            self.batch_norm_2 = nn.BatchNorm1d(n_features, eps=1e-3)
-
-        self.use_layer_norm = use_layer_norm
-        if use_layer_norm:
-            self.layer_norm_1 = nn.LayerNorm(n_features)
-            self.layer_norm_2 = nn.LayerNorm(n_features)
-
-        if n_first_context_features is not None:
-            self.context_layer_1 = nn.Linear(n_first_context_features, n_features)
-        if n_second_context_features is not None:
-            self.context_layer_2 = nn.Linear(n_second_context_features, n_features)
-
-        self.linear_layer_1 = nn.Linear(n_features, n_features)
-        self.linear_layer_2 = nn.Linear(n_features, n_features)
-
-    def forward(
-        self,
-        inputs: torch.Tensor,
-        first_context: torch.Tensor | None = None,
-        second_context: torch.Tensor | None = None
-    ) -> torch.Tensor:
-
-        temps = inputs
-
-        if self.use_batch_norm:
-            temps = self.batch_norm_1(temps)
-        if self.use_layer_norm:
-            temps = self.layer_norm_1(temps)
-        temps = self.activation(temps)
-        temps = self.linear_layer_1(temps)
-
-        if self.use_batch_norm:
-            temps = self.batch_norm_2(temps)
-        if self.use_layer_norm:
-            temps = self.layer_norm_2(temps)
-        temps = self.activation(temps)
-        temps = self.dropout(temps)
-        temps = self.linear_layer_2(temps)
-
-        if first_context is not None:
-            temps = torch.nn.functional.glu(
-                torch.cat((temps, self.context_layer_1(first_context)), dim=1),
-                dim=1,
-            )
             # Residual connection
-            temps = inputs + temps
+            # temps = inputs + temps
         
         if second_context is not None:
             temps = torch.nn.functional.glu(
@@ -195,8 +107,8 @@ class ResidualBlock(nn.Module):
                 dim=1,
             )
             # Residual connection
-            temps = inputs + temps
-        
+            # temps = inputs + temps
+        temps = inputs + temps
         return temps
 
 
