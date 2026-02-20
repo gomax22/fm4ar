@@ -16,6 +16,7 @@ from fm4ar.datasets.scalers.theta_scalers import ThetaScaler, IdentityScaler as 
 from fm4ar.datasets.scalers.auxiliary_data_scalers import AuxiliaryDataScaler, IdentityScaler as AuxIdentityScaler
 from fm4ar.datasets.scalers.flux_scalers import FluxScaler, IdentityScaler as FluxIdentityScaler
 from fm4ar.datasets.scalers.error_bars_scalers import ErrorBarsScaler, IdentityScaler as ErrorBarsIdentityScaler
+from fm4ar.datasets.scalers.wlen_scalers import WavelengthScaler, IdentityScaler as WavelengthIdentityScaler
 from fm4ar.datasets import DatasetConfig
 
 
@@ -49,6 +50,22 @@ THETA = {
     24: 'NH3',
     25: 'C2H6',
     26: 'NO2'
+}
+
+LABELS = {
+    'planet_surface_temperature_(Kelvin)': r"$\mathrm{T_p}$",
+    'log_H2O': r"$\log \mathrm{H_2O}$", 
+    'log_CO2': r"$\log \mathrm{CO_2}$", 
+    'log_O2': r"$\log \mathrm{O_2}$",
+    'log_N2': r"$\log \mathrm{N_2}$",
+    'log_CH4': r"$\log \mathrm{CH_4}$",
+    'log_N2O': r"$\log \mathrm{N_2O}$",
+    'log_CO': r"$\log \mathrm{CO}$",
+    'log_O3': r"$\log \mathrm{O_3}$",
+    'log_SO2': r"$\log \mathrm{SO_2}$",
+    'log_NH3': r"$\log \mathrm{NH_3}$",
+    'log_C2H6': r"$\log \mathrm{C_2H_6}$",
+    'log_NO2': r"$\log \mathrm{NO_2}$",
 }
 
 AUX_DATA = {
@@ -140,7 +157,8 @@ class INARASubset(Dataset):
                  theta_scaler: ThetaScaler | None = None,
                  auxiliary_data_scaler: AuxiliaryDataScaler | None = None,
                  flux_scaler: FluxScaler | None = None,
-                 error_bars_scaler: ErrorBarsScaler | None = None
+                 error_bars_scaler: ErrorBarsScaler | None = None,
+                 wlen_scaler: WavelengthScaler | None = None
     ) -> None:
         super().__init__()
         assert limit is None or isinstance(limit, int), "Limit must be an integer or None."
@@ -196,6 +214,11 @@ class INARASubset(Dataset):
             error_bars_scaler if error_bars_scaler is not None else ErrorBarsIdentityScaler()
         )
 
+        # Scaling transform for the wavelength data `wlen` (e.g., fixed scaling)
+        self.wlen_scaler = (
+            wlen_scaler if wlen_scaler is not None else WavelengthIdentityScaler()
+        )
+
     
     def __getitem__(self, ind) -> dict[str, torch.Tensor]:
         # integers iterate over entries of the dict / np.ndarray
@@ -211,6 +234,9 @@ class INARASubset(Dataset):
 
         # Apply the feature scaling for the error_bars
         sample = self.error_bars_scaler.forward(sample)
+
+        # Apply the feature scaling for the wavelengths
+        sample = self.wlen_scaler.forward(sample)
 
         # First apply the data transforms (e.g., adding noise)
         for transform in self.data_transforms:
@@ -510,7 +536,7 @@ class INARASubset(Dataset):
         return np.array(data, dtype=np.float32)
     
     def get_parameters_labels(self): 
-        return list(THETA.values())
+        return list(LABELS.values())
     
     def get_aux_data_labels(self): 
         return list(AUX_DATA.values())
@@ -528,6 +554,7 @@ def load_inara_dataset(
         auxiliary_data_scaler: AuxiliaryDataScaler | None = None,
         flux_scaler: FluxScaler | None = None,
         error_bars_scaler: ErrorBarsScaler | None = None,
+        wlen_scaler: WavelengthScaler | None = None
     ) -> tuple[INARASubset, INARASubset, INARASubset]:
     """
     Load an INAF dataset from the given data directory.
@@ -546,6 +573,7 @@ def load_inara_dataset(
         auxiliary_data_scaler=auxiliary_data_scaler,
         flux_scaler=flux_scaler,
         error_bars_scaler=error_bars_scaler,
+        wlen_scaler=wlen_scaler
     )
     
     #  Load the validation dataset
@@ -561,6 +589,7 @@ def load_inara_dataset(
         auxiliary_data_scaler=auxiliary_data_scaler,
         flux_scaler=flux_scaler,
         error_bars_scaler=error_bars_scaler,
+        wlen_scaler=wlen_scaler
     )
     # Load the test dataset
     test_dataset = INARASubset(
@@ -575,6 +604,7 @@ def load_inara_dataset(
         auxiliary_data_scaler=auxiliary_data_scaler,
         flux_scaler=flux_scaler,
         error_bars_scaler=error_bars_scaler,
+        wlen_scaler=wlen_scaler
     )
 
     return train_dataset, val_dataset, test_dataset

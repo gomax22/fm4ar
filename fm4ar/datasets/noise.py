@@ -92,7 +92,7 @@ class DefaultNoiseGenerator(NoiseGenerator):
 
         # Draw noise with mean 0 and standard deviation equal to `error_bars`
         # noinspection PyTypeChecker
-        return self.rng.normal(loc=0, scale=error_bars)
+        return self.rng.normal(loc=0, scale=np.abs(error_bars))
 
 
 def get_noise_generator(config: dict) -> NoiseGenerator:

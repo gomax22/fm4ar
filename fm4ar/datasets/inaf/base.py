@@ -14,6 +14,7 @@ from fm4ar.datasets.scalers.theta_scalers import ThetaScaler, IdentityScaler as 
 from fm4ar.datasets.scalers.auxiliary_data_scalers import AuxiliaryDataScaler, IdentityScaler as AuxIdentityScaler
 from fm4ar.datasets.scalers.flux_scalers import FluxScaler, IdentityScaler as FluxIdentityScaler
 from fm4ar.datasets.scalers.error_bars_scalers import ErrorBarsScaler, IdentityScaler as ErrorBarsIdentityScaler
+from fm4ar.datasets.scalers.wlen_scalers import WavelengthScaler, IdentityScaler as WavelengthIdentityScaler
 from fm4ar.datasets import DatasetConfig
 
 # constants for INAF dataset
@@ -84,7 +85,8 @@ class INAFDataset(Dataset):
                  theta_scaler: ThetaScaler | None = None,
                  auxiliary_data_scaler: AuxiliaryDataScaler | None = None,
                  flux_scaler: FluxScaler | None = None,
-                 error_bars_scaler: ErrorBarsScaler | None = None) -> None:
+                 error_bars_scaler: ErrorBarsScaler | None = None,
+                 wlen_scaler: WavelengthScaler | None = None) -> None:
         super().__init__()
         assert limit is None or isinstance(limit, int), "Limit must be an integer or None."
         assert split in ["train", "val", "test", None], "Split must be one of 'train', 'val', 'test', or None."
@@ -128,6 +130,10 @@ class INAFDataset(Dataset):
             error_bars_scaler if error_bars_scaler is not None else ErrorBarsIdentityScaler()
         )
 
+        # Scaling transform for the wavelength data `wlen` (e.g., fixed scaling)
+        self.wlen_scaler = (
+            wlen_scaler if wlen_scaler is not None else WavelengthIdentityScaler()
+        )
 
 
     def __getitem__(self, ind):
@@ -150,6 +156,9 @@ class INAFDataset(Dataset):
 
         # Apply the feature scaling for the error_bars
         sample = self.error_bars_scaler.forward(sample)
+        
+        # Apply the feature scaling for the wavelength
+        sample = self.wlen_scaler.forward(sample)
 
         # First apply the data transforms (e.g., adding noise)
         for transform in self.data_transforms:
@@ -389,6 +398,7 @@ def load_inaf_dataset(
         auxiliary_data_scaler: AuxiliaryDataScaler | None = None,
         flux_scaler: FluxScaler | None = None,
         error_bars_scaler: ErrorBarsScaler | None = None,
+        wlen_scaler: WavelengthScaler | None = None
     ) -> tuple[INAFDataset, INAFDataset, INAFDataset]:
     """
     Load an INAF dataset from the given data directory.
@@ -405,6 +415,7 @@ def load_inaf_dataset(
         auxiliary_data_scaler=auxiliary_data_scaler,
         flux_scaler=flux_scaler,
         error_bars_scaler=error_bars_scaler,
+        wlen_scaler=wlen_scaler,
     )
     
     #  Load the validation dataset
@@ -418,6 +429,7 @@ def load_inaf_dataset(
         auxiliary_data_scaler=auxiliary_data_scaler,
         flux_scaler=flux_scaler,
         error_bars_scaler=error_bars_scaler,
+        wlen_scaler=wlen_scaler,
     )
     # Load the test dataset
     test_dataset = INAFDataset(
@@ -430,6 +442,7 @@ def load_inaf_dataset(
         auxiliary_data_scaler=auxiliary_data_scaler,
         flux_scaler=flux_scaler,
         error_bars_scaler=error_bars_scaler,
+        wlen_scaler=wlen_scaler,
     )
 
 

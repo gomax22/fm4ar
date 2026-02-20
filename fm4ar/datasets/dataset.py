@@ -9,6 +9,7 @@ from fm4ar.datasets.scalers.theta_scalers import get_theta_scaler
 from fm4ar.datasets.scalers.auxiliary_data_scalers import get_auxiliary_data_scaler
 from fm4ar.datasets.scalers.flux_scalers import get_flux_scaler
 from fm4ar.datasets.scalers.error_bars_scalers import get_error_bars_scaler
+from fm4ar.datasets.scalers.wlen_scalers import get_wlen_scaler
 from fm4ar.utils.paths import expand_env_variables_in_path
 
 
@@ -41,6 +42,7 @@ def load_dataset(config: dict) -> tuple[
                 auxiliary_data_scaler=get_auxiliary_data_scaler(config.get("auxiliary_data_scaler", {})),
                 flux_scaler=get_flux_scaler(config.get("flux_scaler", {})),
                 error_bars_scaler=get_error_bars_scaler(config.get("error_bars_scaler", {})),
+                wlen_scaler=get_wlen_scaler(config.get("wlen_scaler", {})),
             )
         case "inara_subset":
             from fm4ar.datasets.inara_subset import INARASubsetConfig, load_inara_dataset
@@ -56,6 +58,7 @@ def load_dataset(config: dict) -> tuple[
                 auxiliary_data_scaler=get_auxiliary_data_scaler(config.get("auxiliary_data_scaler", {})),
                 flux_scaler=get_flux_scaler(config.get("flux_scaler", {})),
                 error_bars_scaler=get_error_bars_scaler(config.get("error_bars_scaler", {})),
+                wlen_scaler=get_wlen_scaler(config.get("wlen_scaler", {})),
             )
         
         case _:

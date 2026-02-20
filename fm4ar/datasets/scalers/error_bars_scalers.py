@@ -70,21 +70,25 @@ class MeanStdScaler(ErrorBarsScaler):
         self,
         mean: np.ndarray,
         std: np.ndarray,
+        eps: float = 1e-6,
     ) -> None:
 
         super().__init__()
 
         self.mean = mean
         self.std = std
+        self.eps = eps
 
     def forward(self, x: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
         output = dict(x)
-        output["error_bars"] = (x["error_bars"] - self.mean) / self.std
+        stds_safe = np.where(self.std < self.eps, 1.0, self.std)  # avoids divide by zero
+        output["error_bars"] = (x["error_bars"] - self.mean) / stds_safe
         return output
 
     def inverse(self, x: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
         output = dict(x)
-        output["error_bars"] = x["error_bars"] * self.std + self.mean
+        stds_safe = np.where(self.std < self.eps, 1.0, self.std)  # avoids divide by zero
+        output["error_bars"] = x["error_bars"] * stds_safe + self.mean
         return output
 
 
@@ -141,6 +145,34 @@ class UnitsScaler(ErrorBarsScaler):
         output["error_bars"] = (x["error_bars"] - self.offset) / self.scale
         return output
 
+class InverseUnitsScaler(ErrorBarsScaler):
+    """
+    Scale `error_bars` using a given scale and offset, but in the inverse way
+    compared to `UnitsScaler`.
+    """
+
+    def __init__(
+        self,
+        scale: np.ndarray,
+        offset: np.ndarray,
+    ) -> None:
+
+        super().__init__()
+
+        self.scale = scale
+        self.offset = offset
+
+    def forward(self, x: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
+        output = dict(x)
+        output["error_bars"] = (x["error_bars"] + self.offset) * self.scale
+        return output
+
+    def inverse(self, x: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
+        output = dict(x)
+        output["error_bars"] = (x["error_bars"] / self.scale) - self.offset
+        return output
+
+
 def get_error_bars_scaler(config: dict[str, Any]) -> ErrorBarsScaler:
     """
     Get the scaler for error_bars specified in the given `config` (which is
@@ -167,6 +199,10 @@ def get_error_bars_scaler(config: dict[str, Any]) -> ErrorBarsScaler:
             scale = np.array(kwargs["scale"])
             offset = np.array(kwargs["offset"])
             scaler = UnitsScaler(scale=scale, offset=offset)
+        case "inverse_units" | "InverseUnitsScaler":
+            scale = np.array(kwargs["scale"])
+            offset = np.array(kwargs["offset"])
+            scaler = InverseUnitsScaler(scale=scale, offset=offset)
         case "identity" | "IdentityScaler":
             scaler = IdentityScaler()
         case _:
@@ -197,8 +233,8 @@ def get_mean_and_std(dataset: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
                     kwargs.get("file_path", None)
                 )
             )
-            mean = norm_params["instrument_noise"]["train"]["mean"]
-            std = norm_params["instrument_noise"]["train"]["std"]
+            mean = norm_params["noise"]["train"]["mean"]
+            std = norm_params["noise"]["train"]["std"]
             del norm_params
         case _:
             raise ValueError(f"Unknown dataset: {dataset}")
@@ -228,8 +264,8 @@ def get_min_and_max(dataset: str, **kwargs) -> tuple[np.ndarray, np.ndarray]:
                     kwargs.get("file_path", None)
                 )
             )
-            minimum = norm_params["instrument_noise"]["train"]["min"]
-            maximum = norm_params["instrument_noise"]["train"]["max"]
+            minimum = norm_params["noise"]["train"]["min"]
+            maximum = norm_params["noise"]["train"]["max"]
             del norm_params
 
         case _:
