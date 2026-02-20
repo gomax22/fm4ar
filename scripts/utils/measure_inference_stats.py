@@ -55,7 +55,7 @@ def get_checkpoint_file_name(
 if __name__ == "__main__":
 
     script_start = time()
-    print("\nMEASURE INFERENCE TIME\n")
+    print("\nMEASURE INFERENCE STATS\n")
 
     # Parse command line arguments and load the configuration
     parser = argparse.ArgumentParser()

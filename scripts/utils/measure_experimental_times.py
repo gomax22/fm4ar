@@ -84,7 +84,12 @@ def measure_experimental_times(
 
 if __name__ == "__main__":
     script_start = time()
-    print("\nCOUNT PARAMETERS AND FLOPS FOR EXPERIMENTS\n")
+    print("\nMEASURE EXPERIMENTAL TIMES\n")
+    print("\nWARNING: This script assumes that the stdout / stderr during training and sampling " \
+          "are redirected to `training.txt` and `sampling.txt` respectively, which is the case when using the " \
+          "scripts in `scripts/train/` and `scripts/sampling/`. If you are using a different setup, " \
+          "you may need to modify this script accordingly.\n"
+    )
 
     # Parse arguments
     parser = ArgumentParser()

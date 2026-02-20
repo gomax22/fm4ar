@@ -147,10 +147,16 @@ if __name__ == "__main__":
 
             # plot the uniform distribution for reference
             # grid = np.linspace(0, , len(traj))
-            ax.plot(
-                np.linspace(0, len(traj), 10), 
-                np.linspace(0, 1, 10), color='black', linestyle='dashed', lw=1.0, label='Fixed-step Trajectory')
-            # ax.axvline(x=min_traj_length, color='black', linestyle='dashed', lw=1.0, label='Min Trajectory Length')
+            if key in ["sample_and_log_prob_batch", "sample_batch"]: # trjectory from 0 to 1
+                ax.plot(
+                    np.linspace(0, len(traj), 10), 
+                    np.linspace(0, 1, 10), color='black', linestyle='dashed', lw=1.0, label='Fixed-step Trajectory')
+                # ax.axvline(x=min_traj_length, color='black', linestyle='dashed', lw=1.0, label='Min Trajectory Length')
+            else: # trajectory from 1 to 0
+                ax.plot(
+                    np.linspace(0, len(traj), 10),
+                    np.linspace(1, 0, 10), color='black', linestyle='dashed', lw=1.0, label='Fixed-step Trajectory')
+                
 
 
 
