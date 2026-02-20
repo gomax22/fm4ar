@@ -17,6 +17,7 @@ NUM_INARA_SAMPLES = 3_112_620
 DIM_THETA = 13
 DIM_AUX = 15
 DIM_WAVELENGTHS = 15_346
+SCALE_FACTOR = 1e18
 
 SECTOR_SIZE = 10_000
 COMPONENTS = [
@@ -88,7 +89,7 @@ def get_parameters(
         numbers = re.findall(r_expr, line)
         data.append([float(num) for num in numbers])  
 
-    parameters = np.array(data, dtype=np.float32)
+    parameters = np.array(data, dtype=np.float64)
     
     # Extract theta parameters
     theta = parameters[:, list(THETA.keys())[0] : list(THETA.keys())[0] + len(THETA)]
@@ -134,7 +135,10 @@ def collect_stats(
             shutil.copy(src_file, dest_dir / src_file.name)
 
             # Access the data to update stats
-            data = np.loadtxt(src_file, delimiter=',', dtype=np.float32)
+            data = np.loadtxt(src_file, delimiter=',', dtype=np.float64)
+
+            if component in ['noise', 'planet_signal']:
+                data *= SCALE_FACTOR
             
         elif component == 'theta':
             theta = [0]
@@ -163,7 +167,7 @@ def collect_stats(
 
                 
         # --- mean & std (Welford) ---
-        data = data.astype(np.float32)
+        data = data.astype(np.float64)
         delta = data - mean
         mean += delta / n
         delta2 = data - mean
@@ -187,10 +191,10 @@ def collect_stats(
     pbar.close()
 
     return {
-        "mean": mean_hist,
-        "std":  std_hist,
-        "min":  min_hist,
-        "max":  max_hist
+        "mean": mean_hist.astype(np.float32),
+        "std":  std_hist.astype(np.float32),
+        "min":  min_hist.astype(np.float32),
+        "max":  max_hist.astype(np.float32),
     }
                 
 
@@ -376,20 +380,24 @@ def draw_subset(
                     shutil.copy(src_file, dest_dir / src_file.name)
 
                     # Access the data to update stats
-                    component_data.append(
-                        np.loadtxt(src_file, delimiter=',', dtype=np.float32))
+                    data = np.loadtxt(src_file, delimiter=',', dtype=np.float64)
+
+                    if component in ['noise', 'planet_signal']:
+                        data *= SCALE_FACTOR
+
+                    component_data.append(data)
                     pbar.update(1)
                 pbar.close()
 
-                component_data = np.array(component_data, dtype=np.float32)
+                component_data = np.array(component_data, dtype=np.float64)
 
                 
             # Collect stats
             stats[component][split] = {
-                "mean": np.mean(component_data, axis=0),
-                "std":  np.std(component_data, axis=0),
-                "min":  np.min(component_data, axis=0),
-                "max":  np.max(component_data, axis=0),
+                "mean": np.mean(component_data, axis=0).astype(np.float32),
+                "std":  np.std(component_data, axis=0).astype(np.float32),
+                "min":  np.min(component_data, axis=0).astype(np.float32),
+                "max":  np.max(component_data, axis=0).astype(np.float32),
             }
 
 

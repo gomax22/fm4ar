@@ -16,6 +16,7 @@ from dataclasses import dataclass
 # --- CONSTANTS ---
 NUM_INARA_SAMPLES = 3_112_620
 SECTOR_SIZE = 10_000
+SCALE_FACTOR = 1e18
 
 # Batch size for multiprocessing
 BATCH_SIZE = 1000 
@@ -150,7 +151,8 @@ def get_parameters(parameters_dir: Path) -> tuple[np.ndarray, np.ndarray, np.nda
         numbers = re.findall(r_expr, line)
         data.append([float(num) for num in numbers])
         
-    parameters = np.array(data, dtype=np.float32)
+    parameters = np.array(data, dtype=np.float64)
+
     theta = parameters[:, list(THETA.keys())[0] : list(THETA.keys())[0] + len(THETA)]
     aux_data = parameters[:, list(AUX_DATA.keys())[0] : list(AUX_DATA.keys())[0] + len(AUX_DATA)]
     planet_indices = parameters[:, 0].astype(np.int32)
@@ -228,10 +230,12 @@ def process_batch(args):
             
             # Load for stats
             try:
-                data_values = np.loadtxt(src_file, delimiter=',', dtype=np.float32)
+                data_values = np.loadtxt(src_file, delimiter=',', dtype=np.float64)
             except Exception as e:
                 print(f"Error reading {src_file}: {e}")
                 continue
+
+            data_values *= SCALE_FACTOR
 
         # Init stats on first valid data
         if local_stats is None and data_values is not None:
