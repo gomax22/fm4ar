@@ -5,6 +5,6 @@ estimators:
   FMPE:
     experiment-dir: $FM4AR_EXPERIMENTS_DIR/inara_subset/fmpe/standard-modeling-dense-residual-network-auxiliary-data-conditioning-dopri5
     color: '#afc6e4'
-  MST-FMPE:
-    experiment-dir: $FM4AR_EXPERIMENTS_DIR/inara_subset/fmpe/0_standard-modeling-hierarchical-multi-scale-transformer-auxiliary-data-conditioning-dopri5
-    color: '#e17518'
+  # MST-FMPE:
+  #   experiment-dir: $FM4AR_EXPERIMENTS_DIR/inara_subset/fmpe/0_standard-modeling-hierarchical-multi-scale-transformer-auxiliary-data-conditioning-dopri5
+  #   color: '#e17518'

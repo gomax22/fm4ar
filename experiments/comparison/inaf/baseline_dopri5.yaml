@@ -1,10 +1,10 @@
 estimators:
   NPE: 
     experiment-dir: $FM4AR_EXPERIMENTS_DIR/inaf/npe/standard-modeling-dense-residual-network
-    color: '#2b7eb8'
+    # color: '#2b7eb8'
   FMPE:
     experiment-dir: $FM4AR_EXPERIMENTS_DIR/inaf/fmpe/standard-modeling-dense-residual-network-dopri5
-    color: '#afc6e4'
+    # color: '#afc6e4'
   MST-FMPE:
     experiment-dir: $FM4AR_EXPERIMENTS_DIR/inaf/fmpe/0_standard-modeling-hierarchical-multi-scale-transformer-dopri5
-    color: '#e17518'
+    # color: '#e17518'
