@@ -4,7 +4,7 @@
 
 dataset:
   name: "inara_subset"
-  data_dir: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset"
+  data_dir: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset_new"
   verbose: true
   limit: null
   random_seed: 42
@@ -13,28 +13,32 @@ theta_scaler:
   method: "MeanStdScaler"
   kwargs:
     dataset: "inara_subset"
-    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset/norm_params.pkl"
+    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset_new/norm_params.pkl"
 
 auxiliary_data_scaler:
   method: "MeanStdScaler"
   kwargs:
     dataset: "inara_subset"
-    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset/norm_params.pkl"
+    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset_new/norm_params.pkl"
 
-# flux_scaler:
-#   method: "UnitsScaler"
-#   kwargs:
-#     dataset: "inara_subset"
-#     scale: 1.0e+3
-#     offset: 1.0e-8
+flux_scaler:
+  method: "MeanStdScaler"
+  kwargs:
+    dataset: "inara_subset"
+    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset_new/norm_params.pkl"
 
-# error_bars_scaler:
-#   method: "UnitsScaler"
-#   kwargs:
-#     dataset: "inara_subset"
-#     scale: 1.0e+3
-#     offset: 1.0e-8
+error_bars_scaler:
+  method: "MeanStdScaler"
+  kwargs:
+    dataset: "inara_subset"
+    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset_new/norm_params.pkl"
 
+wlen_scaler:
+  method: "UnitsScaler"
+  kwargs:
+    dataset: "inara_subset"
+    scale: 1.0e-4
+    offset: 0.0
 
 # -----------------------------------------------------------------------------
 # MODEL ARCHITECTURE
@@ -43,82 +47,48 @@ auxiliary_data_scaler:
 model:
 
   # General settings
-  model_type: "fmpe"
+  model_type: "npe"
   random_seed: 42
-  t_theta_with_glu: true
-  context_with_glu: false
-  auxiliary_data_with_glu: true
-
-  sigma_min: 1.0e-4
-
-  time_prior:
-    type: "power_law"
-    kwargs:
-      time_prior_exponent: 0.0
 
   # Embedding network for context
   context_embedding_net:
+    # - block_type: "SoftClipFlux"
+    #   kwargs:
+    #     bound: 100.0
     - block_type: "Concatenate"
       kwargs:
-        keys: ["flux", "error_bars", "wlen"]
+        keys: ["flux", "error_bars"]
         dim: 1
     - block_type: "DenseResidualNet"
       kwargs:
-        hidden_dims: [512, 512]
+        hidden_dims: [1024, 1024]
         activation: "GELU"
-        output_dim: 512
+        output_dim: 1024
         dropout: 0.1
         use_layer_norm: true
 
-  # Embedding network for (t, theta)
-  t_theta_embedding_net:
-    - block_type: "PositionalEncoding"
-      kwargs:
-        n_freqs: 13
-        encode_theta: false
-    - block_type: "DenseResidualNet"
-      kwargs:
-        hidden_dims: [512, 512]
-        activation: "GELU"
-        output_dim: 512
-        dropout: 0.0
-        use_layer_norm: true
-
-  # Embedding network for auxiliary data      
   auxiliary_data_embedding_net:
     - block_type: "DenseResidualNet"
       kwargs:
-        hidden_dims: [512, 512]
+        hidden_dims: [1024, 1024]
         activation: "GELU"
-        output_dim: 512
+        output_dim: 1024
         dropout: 0.1
         use_layer_norm: true
 
-  # Vector field network
-  vectorfield_net:
-    network_type: "DenseResidualNet"
+  # Discrete normalizing flow (wrapped in a compatibility layer)
+  # Note: normflows uses slightly different kwargs (see unit tests for demo)
+  flow_wrapper:
+    flow_library: "normflows"
     kwargs:
-      hidden_dims:
-        # - 8192
-        # - 4096
-        # - 4096
-        # - 2048
-        - 2048
-        - 1024
-        - 1024
-        - 512
-        - 512
-        - 256
-        - 256
-        - 128
-        - 128
-        - 64
-        - 64
-        - 32
-        - 32
-      activation: "GELU"
-      dropout: 0.1
-      use_layer_norm: true
+      num_flow_steps: 16
+      base_transform_type: "maf"
+      base_transform_kwargs:
+        hidden_features: 1024
+        num_blocks: 4
+        activation: "GELU"
+        dropout_probability: 0.1
+
 
 # -----------------------------------------------------------------------------
 # TRAINING
@@ -128,8 +98,8 @@ training:
 
   stage_0:
     backup_interval: 10
-    batch_size: 256
-    n_workers: 4
+    batch_size: 512
+    n_workers: 16
     data_transforms:
       - type: "AddCustomNoise"
         kwargs:
@@ -139,8 +109,8 @@ training:
             sigma_max: 0.50
             random_seed: 42
     early_stopping:
-      stage_patience: 20
-    epochs: 20
+      stage_patience: 100
+    epochs: 600
     float32_matmul_precision: "high"
     gradient_clipping:
       enabled: true
@@ -148,9 +118,6 @@ training:
     logprob_evaluation:
       interval: 10
       n_samples: 2048
-      ode_solver:
-        method: "dopri5"
-        tolerance: 1.0e-4
     optimizer:
       type: "AdamW"
       kwargs:
@@ -158,8 +125,8 @@ training:
     scheduler:
       type: "CosineAnnealingLR"
       kwargs:
-        T_max: 20
-    use_amp: true
+        T_max: 600
+    use_amp: false
 
 # -----------------------------------------------------------------------------
 # LOCAL SETTINGS
@@ -170,9 +137,8 @@ local:
   # Device ("cpu" or "cuda"; or "auto")
   device: "cuda"
 
-
   # Settings for Weights & Biases, remove if not used
   wandb:
     project: "fm4ar"
-    group: "inara"
-    name: "fmpe__standard-modeling-dense-residual-network-auxiliary-data-conditioning"
+    group: "inara-subset-new"
+    name: "npe__standard-modeling-dense-residual-network-auxiliary-data-conditioning-maf"

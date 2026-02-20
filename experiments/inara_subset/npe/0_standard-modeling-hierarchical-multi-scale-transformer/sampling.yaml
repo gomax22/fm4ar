@@ -4,18 +4,15 @@
 
 # General settings
 checkpoint_file_name: "model__best.pt"
-model_kwargs:
-  method: dopri5
-  tolerance: 1.0e-5
+model_kwargs: {}
 loss_kwargs: {}
-
 
 # Stage 1: Draw samples from the proposal distribution
 draw_samples:
-  chunk_size: 128
+  chunk_size: 32
   n_samples: 2048
   batch_size: 4
-  use_amp: true
+  use_amp: false
   shuffle: false
   pin_memory: true
   drop_last: false
@@ -27,6 +24,6 @@ merge_samples:
   show_progressbar: true
 
 merge_profilers:
-  reindex_batches: true
   delete_after_merge: true
   show_progressbar: true
+  reindex_batches: true

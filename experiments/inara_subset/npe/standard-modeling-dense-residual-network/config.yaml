@@ -4,7 +4,7 @@
 
 dataset:
   name: "inara_subset"
-  data_dir: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset"
+  data_dir: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset_new"
   verbose: true
   limit: null
   random_seed: 42
@@ -13,21 +13,26 @@ theta_scaler:
   method: "MeanStdScaler"
   kwargs:
     dataset: "inara_subset"
-    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset/norm_params.pkl"
+    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset_new/norm_params.pkl"
 
-# flux_scaler:
-#   method: "UnitsScaler"
-#   kwargs:
-#     dataset: "inara_subset"
-#     scale: 1.0e+3
-#     offset: 1.0e-8
+flux_scaler:
+  method: "MeanStdScaler"
+  kwargs:
+    dataset: "inara_subset"
+    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset_new/norm_params.pkl"
 
-# error_bars_scaler:
-#   method: "UnitsScaler"
-#   kwargs:
-#     dataset: "inara_subset"
-#     scale: 1.0e+3
-#     offset: 1.0e-8
+error_bars_scaler:
+  method: "MeanStdScaler"
+  kwargs:
+    dataset: "inara_subset"
+    file_path: "$FM4AR_DATASETS_DIR/PSG_INARA_Subset_new/norm_params.pkl"
+
+wlen_scaler:
+  method: "UnitsScaler"
+  kwargs:
+    dataset: "inara_subset"
+    scale: 1.0e-4
+    offset: 0.0
 
 # -----------------------------------------------------------------------------
 # MODEL ARCHITECTURE
@@ -41,18 +46,18 @@ model:
 
   # Embedding network for context
   context_embedding_net:
-    - block_type: "SoftClipFlux"
-      kwargs:
-        bound: 100.0
+    # - block_type: "SoftClipFlux"
+    #   kwargs:
+    #     bound: 1.0
     - block_type: "Concatenate"
       kwargs:
-        keys: ["flux", "error_bars", "wlen"]
+        keys: ["flux", "error_bars"]
         dim: 1
     - block_type: "DenseResidualNet"
       kwargs:
-        hidden_dims: [512, 512]
+        hidden_dims: [1024, 1024]
         activation: "GELU"
-        output_dim: 512
+        output_dim: 1024
         dropout: 0.1
         use_layer_norm: true
 
@@ -64,7 +69,7 @@ model:
       num_flow_steps: 16
       base_transform_type: "rq-coupling"
       base_transform_kwargs:
-        hidden_dim: 512
+        hidden_dim: 1024
         num_transform_blocks: 4
         activation: "GELU"
         dropout_probability: 0.1
@@ -81,8 +86,8 @@ training:
 
   stage_0:
     backup_interval: 10
-    batch_size: 256
-    n_workers: 4
+    batch_size: 512
+    n_workers: 16
     data_transforms:
       - type: "AddCustomNoise"
         kwargs:
@@ -92,14 +97,14 @@ training:
             sigma_max: 0.50
             random_seed: 42
     early_stopping:
-      stage_patience: 20
-    epochs: 20
+      stage_patience: 100
+    epochs: 600
     float32_matmul_precision: "high"
     gradient_clipping:
       enabled: true
       max_norm: 1.0
     logprob_evaluation:
-      interval: null
+      interval: 10
       n_samples: 2048
     optimizer:
       type: "AdamW"
@@ -108,7 +113,7 @@ training:
     scheduler:
       type: "CosineAnnealingLR"
       kwargs:
-        T_max: 20
+        T_max: 600
     use_amp: false
 
 # -----------------------------------------------------------------------------
@@ -123,5 +128,5 @@ local:
   # Settings for Weights & Biases, remove if not used
   wandb:
     project: "fm4ar"
-    group: "inara"
+    group: "inara-subset-new"
     name: "npe__standard-modeling-dense-residual-network"
