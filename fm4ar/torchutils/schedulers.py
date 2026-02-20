@@ -8,7 +8,7 @@ from typing import Any, Callable, Literal, Type
 import torch
 from pydantic import BaseModel, Field, field_validator
 from torch.optim import lr_scheduler as lrs
-
+from pl_bolts.optimizers import lr_scheduler as llrs
 from fm4ar.torchutils.optimizers import get_lr
 
 # Define joint type for learning rate schedulers
@@ -37,7 +37,11 @@ class SchedulerConfig(BaseModel):
         try:
             getattr(import_module("torch.optim.lr_scheduler"), v)
         except AttributeError as e:
-            raise ValueError(f"Invalid scheduler type: `{v}`") from e
+            try:
+                getattr(import_module("pl_bolts.optimizers.lr_scheduler"), v)
+            except AttributeError:
+                raise ValueError(f"Invalid scheduler type: `{v}`") from e
+        
         return v
 
 
@@ -60,10 +64,17 @@ def get_scheduler_from_config(
     # Get scheduler class based on the type
     # This should not require further error handling as the optimizer type
     # is already validated in the `OptimizerConfig` class
-    SchedulerClass: Type[lrs.LRScheduler | lrs.ReduceLROnPlateau] = getattr(
-        import_module("torch.optim.lr_scheduler"),
-        scheduler_config.type,
-    )
+    SchedulerClass: Type[lrs.LRScheduler | lrs.ReduceLROnPlateau] 
+    try: 
+        SchedulerClass = getattr(
+            import_module("torch.optim.lr_scheduler"),
+            scheduler_config.type,
+        )
+    except AttributeError:
+        SchedulerClass = getattr(
+            import_module("pl_bolts.optimizers.lr_scheduler"),
+            scheduler_config.type,
+        )
 
     # Instantiate scheduler from scheduler type and keyword arguments
     return SchedulerClass(optimizer, **scheduler_config.kwargs)
@@ -99,6 +110,8 @@ def perform_scheduler_step(
         lrs.StepLR: "epoch",
         lrs.ReduceLROnPlateau: "epoch",
         lrs.LinearLR: "batch",
+
+        llrs.LinearWarmupCosineAnnealingLR: "epoch",
     }
 
     # Make sure we know how to handle the end_of argument
